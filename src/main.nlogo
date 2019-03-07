@@ -187,7 +187,7 @@ set k knowhow
    if (first here-list = 1)       ;first check for regular food
       [set energy (energy + regular)
        ]
-   if (sum (map [ [?1 ?2] -> ?1 * ?2 ] knowhow ( butfirst here-list)) = 1)  ;check for the spec. stuff
+   if (sum (map [?1 * ?2] knowhow ( butfirst here-list)) = 1)  ;check for the spec. stuff
        [set energy (energy + (regular * 2))
        ]
 
@@ -379,7 +379,7 @@ end
 ;;sum over 2 lists
 to-report sum2 [list1 list2]
 if (list2 = []) [report list1]
-report (map [ [?1 ?2] -> ?1 + ?2 ] list1 list2)
+report (map [?1 + ?2] list1 list2)
 end
 
 to-report field
@@ -500,7 +500,7 @@ let l 0
 let soc-turtles (turtle-set talker silent)
 
 set l (sum-list ([knowhow] of soc-turtles))
-set l (map [ ?1 -> ( ?1 / (count soc-turtles)) * 100 ] l)
+set l (map [ ( ? / (count soc-turtles)) * 100] l)
 ; choose the plot
 set-current-plot "knowledge"
 ; set the height of the plot
@@ -514,8 +514,8 @@ plot-pen-reset
 ; make sure it's a bar plot
 set-plot-pen-mode 1
 ; add bars to the plot
-foreach (n-values (length l) [ ?1 -> ?1 ] )
-  [ ?1 -> ; ?1 is index
+foreach (n-values (length l) [ ? ] )
+  [ ; ?1 is index
   plot ( item ?1 l )
   ]
 end
@@ -633,10 +633,10 @@ end
 GRAPHICS-WINDOW
 365
 10
-1341
-987
--1
--1
+1343
+1009
+60
+60
 8.0
 1
 10
@@ -899,7 +899,7 @@ num-food-strat
 num-food-strat
 1
 20
-8.0
+8
 1
 1
 NIL
@@ -914,7 +914,7 @@ lifespan
 lifespan
 5
 100
-65.0
+65
 5
 1
 NIL
@@ -929,7 +929,7 @@ start-num-turtles
 start-num-turtles
 0
 4000
-750.0
+750
 250
 1
 NIL
@@ -978,7 +978,7 @@ ratio-of-special-foods
 ratio-of-special-foods
 -8
 8
--8.0
+-8
 1
 1
 (2 is raised to this)
@@ -993,7 +993,7 @@ freq-of-mutation
 freq-of-mutation
 0
 10
-5.0
+5
 1
 1
 (1 in 10 raised to this)
@@ -1443,8 +1443,9 @@ Line -16777216 false 58 211 67 192
 Polygon -6459832 true true 38 138 66 149
 Polygon -6459832 true true 46 128 33 120 21 118 11 123 3 138 5 160 13 178 9 192 0 199 20 196 25 179 24 161 25 148 45 140
 Polygon -6459832 true true 67 122 96 126 63 144
+
 @#$#@#$#@
-NetLogo 6.0.4
+NetLogo 5.3.1
 @#$#@#$#@
 @#$#@#$#@
 @#$#@#$#@
@@ -1956,6 +1957,7 @@ true
 0
 Line -7500403 true 150 150 90 180
 Line -7500403 true 150 150 210 180
+
 @#$#@#$#@
 0
 @#$#@#$#@
