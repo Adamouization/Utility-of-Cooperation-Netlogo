@@ -394,7 +394,7 @@ cost-of-living
 0
 2
 1.0
-.25
+.50
 1
 NIL
 HORIZONTAL
@@ -517,8 +517,8 @@ CHOOSER
 280
 suicide-rate
 suicide-rate
-0.001 0.01 0.1
-0
+1.0E-4 0.001 0.01 0.1 0.9
+3
 
 @#$#@#$#@
 ## WHAT IS IT?
