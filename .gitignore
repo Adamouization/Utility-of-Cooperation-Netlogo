@@ -26,4 +26,6 @@ Network Trash Folder
 Temporary Items
 .apdisk
 
-
+# NetLogo temporary files
+*.tmp.nlogo
+*.tmp.nlogo3d
