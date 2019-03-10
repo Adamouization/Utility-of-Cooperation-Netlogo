@@ -4,6 +4,9 @@
 ;kill yourself to make 2 copies
 ;manage proportion of suicidal entities (for greater good)
 
+;; extension to export data to a .csv file
+extensions [csv]
+
 ;;turtle variables
 turtles-own[
  energy ;turtles accumulated energy
@@ -21,7 +24,40 @@ globals[
 ]
 
 
-;;SETUP PROCEDURES
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; RUN SIMULATIONS
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+to run-simulation-to-file
+  ; Run the simulation 50 times up to 1300 ticks recording knowledge density to a csv file over every run every 100 ticks
+  let filename (word "simulation-results-" cost-of-living ".csv")
+  IF FILE-EXISTS? filename [
+    FILE-DELETE filename
+  ]
+  let number-of-ticks-main (n-values 50 [(n-values 13 [0.1])])
+  let cnt-outer 0
+  repeat 50 [
+    setup
+    let number-of-ticks (n-values 14 [0.1])
+    let cnt-inner 1
+    ;; go to 500 ticks
+    repeat 5 [
+      repeat 100 [
+        go
+      ]
+      set number-of-ticks (replace-item cnt-inner number-of-ticks rep-tick-maximum)
+      set cnt-inner (cnt-inner + 1)
+    ]
+    set number-of-ticks-main (replace-item cnt-outer number-of-ticks-main number-of-ticks)
+    set cnt-outer (cnt-outer + 1)
+  ]
+  csv:to-file filename number-of-ticks-main
+end
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; SETUP PROCEDURES
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to setup
   clear-all
@@ -55,12 +91,9 @@ to create-agents [n coop-freq]
 end
 
 
-
-
-
-
-;;BEHAVIOR PROCEDURES
-
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; BEHAVIOR PROCEDURES
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 to go
   if not any? turtles [ stop ] ;stop the simulation if everyone is dead
   let nblue (count turtles with [color = blue])
@@ -90,7 +123,6 @@ to go
           ]
           [
           ]
-
         ]
         set energy 0
 
@@ -103,15 +135,10 @@ to go
         ;]
       ]
       [
-
       ]
     ]
     [
-
     ]
-
-
-
     ;;energy loss
     set energy (energy - cost-of-living)
     if energy > max-energy [ set energy max-energy ]
@@ -215,7 +242,9 @@ to cull-herd
 end
 
 
-;;for plotting
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; PLOTTING
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to-report rep-coop-freq
   let Nc (count turtles with [ color = blue ])
@@ -223,6 +252,10 @@ to-report rep-coop-freq
   report Nc / N
 end
 
+to-report rep-tick-maximum
+  let tick-max ticks
+  report tick-max
+end
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -231,13 +264,13 @@ end
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 @#$#@#$#@
 GRAPHICS-WINDOW
-211
-8
-499
-297
+205
+31
+510
+337
 -1
 -1
-4.0
+4.243
 1
 10
 1
@@ -258,25 +291,25 @@ ticks
 30.0
 
 SLIDER
-9
-339
-181
-372
+15
+347
+187
+380
 num-agents
 num-agents
 1
-2500
-160.0
+4900
+100.0
 1
 1
 NIL
 HORIZONTAL
 
 SLIDER
-9
-381
-181
-414
+15
+389
+187
+422
 init-coop-freq
 init-coop-freq
 0
@@ -339,14 +372,14 @@ NIL
 1
 
 SLIDER
-326
-351
-498
-384
+199
+347
+371
+380
 carrying-capacity
 carrying-capacity
 1
-10000
+4900
 4900.0
 1
 1
@@ -354,10 +387,10 @@ NIL
 HORIZONTAL
 
 SLIDER
-20
-118
-192
-151
+21
+160
+193
+193
 cost-of-living
 cost-of-living
 0
@@ -369,9 +402,9 @@ NIL
 HORIZONTAL
 
 SLIDER
-329
+200
 390
-501
+372
 423
 payoff-CD
 payoff-CD
@@ -384,10 +417,10 @@ NIL
 HORIZONTAL
 
 PLOT
-633
-13
-833
-197
+521
+30
+721
+214
 populations
 ticks
 number of agents
@@ -403,10 +436,10 @@ PENS
 "defectors" 1.0 0 -2674135 true "" "plot count turtles with [color = red]"
 
 PLOT
-630
-215
-830
-365
+518
+232
+718
+382
 cooperator frequency
 ticks
 coop freq
@@ -421,10 +454,10 @@ PENS
 "default" 1.0 0 -16777216 true "" "plot rep-coop-freq"
 
 MONITOR
-630
-372
-688
-417
+518
+389
+576
+434
 N
 count turtles
 17
@@ -432,10 +465,10 @@ count turtles
 11
 
 SLIDER
-21
-179
-193
-212
+20
+206
+195
+239
 suicide-rate
 suicide-rate
 0.0001
@@ -445,6 +478,34 @@ suicide-rate
 1
 NIL
 HORIZONTAL
+
+BUTTON
+22
+114
+193
+147
+record simulation
+run-simulation-to-file
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+MONITOR
+584
+390
+641
+435
+ticks
+ticks
+17
+1
+11
 
 @#$#@#$#@
 ## WHAT IS IT?
