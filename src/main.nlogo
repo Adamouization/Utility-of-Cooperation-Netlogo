@@ -109,7 +109,7 @@ to go
     ;;kill yourself
     ifelse color = green ;if I'm a cooperator
     [
-      ifelse random-float 1 < 0.1
+      ifelse random-float 1 < suicide-rate
       [
         let currenergy energy
 
@@ -462,21 +462,6 @@ count turtles
 1
 11
 
-SLIDER
-22
-233
-194
-266
-suicide-rate
-suicide-rate
-0.0001
-100
-50.0
-1
-1
-NIL
-HORIZONTAL
-
 BUTTON
 22
 114
@@ -524,6 +509,16 @@ CONSTANT VARIABLES
 14
 0.0
 1
+
+CHOOSER
+22
+235
+198
+280
+suicide-rate
+suicide-rate
+0.001 0.01 0.1
+0
 
 @#$#@#$#@
 ## WHAT IS IT?
