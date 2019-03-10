@@ -4,8 +4,6 @@
 ;kill yourself to make 2 copies
 ;manage proportion of suicidal entities (for greater good)
 
-;; extension to export data to a .csv file
-extensions [csv]
 
 ;;turtle variables
 turtles-own[
@@ -28,31 +26,31 @@ globals[
 ; RUN SIMULATIONS
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-to run-simulation-to-file
-  ; Run the simulation 50 times up to 1300 ticks recording knowledge density to a csv file over every run every 100 ticks
-  let filename (word "simulation-results-" cost-of-living ".csv")
-  IF FILE-EXISTS? filename [
-    FILE-DELETE filename
-  ]
-  let number-of-ticks-main (n-values 50 [(n-values 13 [0.1])])
-  let cnt-outer 0
-  repeat 50 [
-    setup
-    let number-of-ticks (n-values 14 [0.1])
-    let cnt-inner 1
-    ;; go to 500 ticks
-    repeat 5 [
-      repeat 100 [
-        go
-      ]
-      set number-of-ticks (replace-item cnt-inner number-of-ticks rep-tick-maximum)
-      set cnt-inner (cnt-inner + 1)
-    ]
-    set number-of-ticks-main (replace-item cnt-outer number-of-ticks-main number-of-ticks)
-    set cnt-outer (cnt-outer + 1)
-  ]
-  csv:to-file filename number-of-ticks-main
-end
+;to run-simulation-to-file
+;  ; Run the simulation 50 times up to 1300 ticks recording knowledge density to a csv file over every run every 100 ticks
+;  let filename (word "simulation-results-" cost-of-living ".csv")
+;  IF FILE-EXISTS? filename [
+;    FILE-DELETE filename
+;  ]
+;  let number-of-ticks-main (n-values 50 [(n-values 13 [0.1])])
+;  let cnt-outer 0
+;  repeat 50 [
+;    setup
+;    let number-of-ticks (n-values 14 [0.1])
+;    let cnt-inner 1
+;    ;; go to 500 ticks
+;    repeat 5 [
+;      repeat 100 [
+;        go
+;      ]
+;      set number-of-ticks (replace-item cnt-inner number-of-ticks rep-tick-maximum)
+;      set cnt-inner (cnt-inner + 1)
+;    ]
+;    set number-of-ticks-main (replace-item cnt-outer number-of-ticks-main number-of-ticks)
+;    set cnt-outer (cnt-outer + 1)
+;  ]
+;  csv:to-file filename number-of-ticks-main
+;end
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -81,10 +79,10 @@ end
 to create-agents [n coop-freq]
   create-turtles n[
     ifelse random-float 1 < coop-freq
-    [set color blue]
+    [set color green]
     [set color red]
     set shape "square"
-    set size 1.3
+    set size 1
     move-to one-of patches with [not any? other turtles-here]
     set energy (random 50 + 1)
   ]
@@ -96,7 +94,7 @@ end
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 to go
   if not any? turtles [ stop ] ;stop the simulation if everyone is dead
-  let nblue (count turtles with [color = blue])
+  let ngreen (count turtles with [color = green])
   ask turtles [set played? false]
   ask turtles[
     if energy <= 0 [die] ;;die if not enough energy
@@ -109,24 +107,24 @@ to go
       [reproduce]
 
     ;;kill yourself
-    ifelse color = blue ;if I'm a cooperator
+    ifelse color = green ;if I'm a cooperator
     [
       ifelse random-float 1 < 0.1
       [
         let currenergy energy
 
-        ask turtles with [color = blue]
+        ask turtles with [color = green]
         [
           ifelse random-float 1 < 1
           [
-            set energy (energy + (currenergy / nblue))
+            set energy (energy + (currenergy / ngreen))
           ]
           [
           ]
         ]
         set energy 0
 
-        ;let partner (one-of ((turtles-on neighbors) with [color = blue]))
+        ;let partner (one-of ((turtles-on neighbors) with [color = green]))
         ;;the rest only runs if a partner is found
         ;if partner != nobody
         ;[
@@ -169,9 +167,9 @@ to interact
     set played? true
     ask partner [set played? true]
 
-    ifelse color = blue ;if I'm a cooperator
+    ifelse color = green ;if I'm a cooperator
     [
-      ifelse ([color] of partner) = blue
+      ifelse ([color] of partner) = green
       [
         set energy (energy + payoff-CC)
         ask partner [set energy (energy + payoff-CC)]
@@ -182,7 +180,7 @@ to interact
       ]
     ]
     [ ;if I'm a defector
-      ifelse ([color] of partner) = blue
+      ifelse ([color] of partner) = green
       [
         set energy (energy + payoff-DC)
         ask partner [set energy (energy + payoff-CD)]
@@ -247,7 +245,7 @@ end
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to-report rep-coop-freq
-  let Nc (count turtles with [ color = blue ])
+  let Nc (count turtles with [ color = green ])
   let N (count turtles)
   report Nc / N
 end
@@ -291,10 +289,10 @@ ticks
 30.0
 
 SLIDER
-15
-347
-187
-380
+20
+375
+192
+408
 num-agents
 num-agents
 1
@@ -306,10 +304,10 @@ NIL
 HORIZONTAL
 
 SLIDER
-15
-389
-187
-422
+20
+417
+192
+450
 init-coop-freq
 init-coop-freq
 0
@@ -325,7 +323,7 @@ BUTTON
 32
 193
 66
-NIL
+Setup
 setup
 NIL
 1
@@ -342,7 +340,7 @@ BUTTON
 72
 108
 106
-NIL
+Go
 go
 T
 1
@@ -359,7 +357,7 @@ BUTTON
 72
 194
 106
-go once
+Go (x1)
 go
 NIL
 1
@@ -372,10 +370,10 @@ NIL
 1
 
 SLIDER
-199
-347
-371
-380
+204
+375
+376
+408
 carrying-capacity
 carrying-capacity
 1
@@ -387,10 +385,10 @@ NIL
 HORIZONTAL
 
 SLIDER
-21
-160
-193
-193
+22
+194
+194
+227
 cost-of-living
 cost-of-living
 0
@@ -402,10 +400,10 @@ NIL
 HORIZONTAL
 
 SLIDER
-200
-390
-372
-423
+205
+418
+377
+451
 payoff-CD
 payoff-CD
 -10
@@ -419,28 +417,28 @@ HORIZONTAL
 PLOT
 521
 30
-721
+900
 214
-populations
-ticks
-number of agents
+Populations
+Ticks
+Turtles
 0.0
 10.0
 0.0
 10.0
 true
-false
+true
 "" ""
 PENS
-"cooperators" 1.0 0 -13345367 true "" "plot count turtles with [color = blue]"
+"cooperators" 1.0 0 -13840069 true "" "plot count turtles with [color = green]"
 "defectors" 1.0 0 -2674135 true "" "plot count turtles with [color = red]"
 
 PLOT
-518
-232
-718
-382
-cooperator frequency
+587
+223
+900
+373
+Cooperator frequency
 ticks
 coop freq
 0.0
@@ -451,13 +449,13 @@ true
 false
 "" ""
 PENS
-"default" 1.0 0 -16777216 true "" "plot rep-coop-freq"
+"default" 1.0 0 -14070903 true "" "plot rep-coop-freq"
 
 MONITOR
-518
-389
-576
-434
+522
+225
+580
+270
 N
 count turtles
 17
@@ -465,10 +463,10 @@ count turtles
 11
 
 SLIDER
-20
-206
-195
-239
+22
+233
+194
+266
 suicide-rate
 suicide-rate
 0.0001
@@ -482,10 +480,10 @@ HORIZONTAL
 BUTTON
 22
 114
-193
+195
 147
-record simulation
-run-simulation-to-file
+[X] Record simulation [X]
+;;run-simulation-to-file
 NIL
 1
 T
@@ -497,15 +495,35 @@ NIL
 1
 
 MONITOR
-584
-390
-641
-435
+522
+276
+579
+321
 ticks
 ticks
 17
 1
 11
+
+TEXTBOX
+25
+173
+191
+192
+EXPERIMENT VARIABLES
+14
+0.0
+1
+
+TEXTBOX
+23
+351
+193
+372
+CONSTANT VARIABLES
+14
+0.0
+1
 
 @#$#@#$#@
 ## WHAT IS IT?
