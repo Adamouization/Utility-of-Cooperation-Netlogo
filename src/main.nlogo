@@ -1,643 +1,243 @@
-;;  The impact of ecological constraints on a model of altruistic communication --
-
-;; This version of the simulation was written by Joanna Bryson while a fellow of the Konrad Lorenz Institute for Evolution and Cognition Research, while on sabbatical from the University of Bath.
-;; It is based on a simulation by Cace and Bryson (2005, 2007).
-
-;; Changes since journal submission:
-;;                                        March 2017 by JJB: tidied for ICCS
-;;                                  15 December 2007 by JJB: enable exploration of different niche sizes.
-;;                                  01 January  2008 by JJB: mutation for Boyd.
-;;                                  09 February 2009 by JJB: remove predation experiments, Cace's old file code (pre-Behaviour Spaces) for PNAS archive
-;;                                  31 January  2010 by JJB: fix comments clarifying food growth, update to NetLogo 4.1 (didn't require code change)
-;;                                        July  2010 by JJB & WEML:  new BehavSpace code to run viscosity checks
-;;                                    September 2010 by JJB: caught weird food consumption bug working on derived simulation; didn't impact results but reran figures anyway.
-;;				       November 2011 by JJB: change experiment names for HBES submission
-
-;;    globalvars from sliders etc.:
-;;
-;;            starting-proportion-altruists   ;; the chance that a turtle will be a comunicator
-;;            food-depletes?    ;; determines whether there is a cost to sharing knowledge -- does the food deplete if someone else eats it?
-;;            food-replacement-rate       ;; how many turns until food grows back -- originally 35
-;;            ratio-of-special-foods      ;; 2 is raised to this and multiplied by food-replacement-rate.  Originally 1/16th == -4
-;;            run-dist          ;; approx distance moved per turn , see below
-;;            travel-mode       ;; exact distance; levi flight; smooth distribution; or warp
-;;            num-food-strat              ;; number of types of things to eat (& know about)
-;;            lifespan                    ;; the maximum turtle age
-;;            travel-mode                 ;; one of run (continuous), warp (jump anywhere), only-freeriders-warp
-;;            start-num-turtles                 ;; num soc-turtles in initial population
-;;            simulation-runtime          ;; how many timesteps the simulation runs
-;;            broadcast-radius            ;; how far away soc-turtles can receive / observe knowledge transmission.  Ivana's default was 1
-;;            mutation?          ;; if off, none
-;;            freq-of-mutation   ;; if mutation? on, then 1 in 10 raised to this will be a different species than their parents
+;;try to copy a simple spatial PD game with mobile agents
 
 
-;;     Ivana wrote code for this, but had it set to 0 for the paper.  If we ever experiment with it, make into a slider.
-;;            knowledge-transfer          ;; for every item, the probability that the parent will teach the child
+;kill yourself to make 2 copies
+;manage proportion of suicidal entities (for greater good)
 
-;;            World size for submitted HBES figures is 85 x 85 with patches of 8.0, font size 10.  A smaller world runs faster, but the results
-;;                  have higher variance since the effects are all probabilistic / population-based.
+;;turtle variables
+turtles-own[
+ energy ;turtles accumulated energy
+ played? ;has the turtle played this round?
+]
+
+;;global parameters
+globals[
+  reproduce-threshold
+  reproduce-cost
+  payoff-CC
+  payoff-DC
+  payoff-DD
+  max-energy
+]
 
 
-globals [ extra-list                  ;; holds the values for the different types of food
-          regular                     ;; holds the value for the regular type of food, accesible to all
-          show-knowledge
-          p-knowhow                   ;; the chance that a turtle will know how to exploit a new foodtype at birth (FIXME should be a slider)
-          num-special-food-strat      ;; num-food-strat - 1, often useful.
-          expected-graph-max          ;; what we expect the Y axis to run to on the big combined plot
-          foodstrat-graph-const       ;; multiplier based on num-food-strat for the combined plot
-          tc                          ; social turtle colour
-          ktc                         ; turtles-that-know-something-you-are-looking-at colour
-          ]
-
-
-patches-own [ here-list ]   ;;hold a value describing the type of food that is on this patch, -1 if empty
-
-turtles-own [ age
-              energy
-              knowhow
-               ]
-
-breed [ talker a-talker ]
-breed [ silent a-silent ]
-
+;;SETUP PROCEDURES
 
 to setup
-  ;; (for this model to work with NetLogo's new plotting features,
-  ;; __clear-all-and-reset-ticks should be replaced with clear-all at
-  ;; the beginning of your setup procedure and reset-ticks at the end
-  ;; of the procedure.)
-  __clear-all-and-reset-ticks
-  setup-globals
-  setup-patches
-  setup-agents
-  setup-plot
+  clear-all
+  ask patches [set pcolor white]
+  initialize-variables
+  create-agents num-agents init-coop-freq
+  reset-ticks
 end
 
-to setup-globals
-  set num-special-food-strat (num-food-strat - 1)             ;;;this is more intuitive
-  set expected-graph-max 8000       ;; hard coded from looking at graphs
-  set foodstrat-graph-const expected-graph-max / num-food-strat             ;; see update-plot-all
-  set regular 5                     ;;;default food's value, this could also be user defined.
+to initialize-variables
+  ;;initialize all variables
+  set reproduce-threshold 100
+  set reproduce-cost 50
+  set payoff-CC 2
+  set payoff-CD 2
+  set payoff-DC 2
+  set payoff-DD 2
+  set max-energy 150
+end
 
-  set extra-list (n-values num-special-food-strat [ (regular * 2) ])  ;; special are worth twice as much
-  set extra-list (fput regular extra-list)
-
-  set show-knowledge 0
-  set p-knowhow 0.05        ;; this is a significant value in the simulation, the probability an agent learns something on its own.  Should be a slider.
-  set tc 97                 ;; color for ignorant turtles when using the "show knowledge" buttons
-  set ktc 125               ;; color for turtles who know what you want to check on, as per previous line
-;  set knowledge-transfer 0   ; see comment about this at the top of the file.  Variable not used now.
+to create-agents [n coop-freq]
+  create-turtles n[
+    ifelse random-float 1 < coop-freq
+    [set color blue]
+    [set color red]
+    set shape "square"
+    set size 1.3
+    move-to one-of patches with [not any? other turtles-here]
+    set energy (random 50 + 1)
+  ]
 end
 
 
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;patches
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-;; at setup time, we run what happens normally a few times to get some food grown up
-to setup-patches
-ask patches
-   [ set here-list (n-values num-food-strat [ 0 ])     ;; all patches are empty
-     repeat 25 [fill-patches-regular fill-patches-special]
-     update-patches
-   ]
-end
 
-; on every cycle, each patch has a food-replacement-rate% chance of being filled with grass, whether it had food there before or not.
-to fill-patches-regular
-if (random-float 100 < food-replacement-rate)
-  [set here-list (n-values num-food-strat [ 0 ])     ;; empty whatever is on the patch
-   set here-list (add-food 0 here-list)]             ;; add regular food
-end
 
-; on every cycle, each patch has a (food-replacement-rate * ratio-of-special-foods)% chance of being filled with a special food, though it
-; may immediately afterwards get replaced by grass.
-to fill-patches-special
-if (sum here-list) = 0 ;; if the patch is empty
-  [ if (num-special-food-strat != 0 ) and ((random-float 100 ) < (food-replacement-rate * (2 ^ ratio-of-special-foods)))
-    [ set here-list (n-values num-food-strat [ 0 ])                                 ;; empty whatever is on the patch
-      set here-list (add-food ((random num-special-food-strat) + 1) here-list)] ]   ;; add one of the food types
-end
 
-to update-patches
-set pcolor (40 + (first here-list * 3) + (sum (butfirst here-list) * 5))
-end
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-;;;;;turtles
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-to setup-agents
-  set-default-shape talker "loud"
-  set-default-shape silent "silent"
-  crt start-num-turtles                                   ;; create given number of turtles
-  ask turtles [set age random lifespan                    ;; set age to hatchlings (fput kind hatchlingsrandom number < lifespan
-               setxy (random world-width)                 ;; randomize the turtle locations
-                        (random world-height)
-               set energy (random-normal 18 0.9 )
-               init-soc-vars
-               set color tc ]
-end
-
-to init-soc-vars
-  ;; roll dice for breed
-  ifelse ((random 100) < (starting-proportion-altruists * 100))  [ set breed talker ] [ set breed silent ]
-  mutate-or-not
-  ;; roll dice for every knowledge-slot
-  get-infant-knowledge                       ;; a few will know something extra...
-end
-
-to mutate-or-not
-    if (mutation?) [if (1 = (random (10 ^ freq-of-mutation))) [ifelse (breed = talker) [ set breed silent ] [ set breed talker ]]]
-end
+;;BEHAVIOR PROCEDURES
 
 to go
+  if not any? turtles [ stop ] ;stop the simulation if everyone is dead
+  let nblue (count turtles with [color = blue])
+  ask turtles [set played? false]
+  ask turtles[
+    if energy <= 0 [die] ;;die if not enough energy
+
+    ;;play PD game and collect payoffs
+    if (not played?)[ interact ] ;;find coplayer
+
+    ;;reproduce
+    if (energy >= reproduce-threshold and (count turtles < carrying-capacity))
+      [reproduce]
+
+    ;;kill yourself
+    ifelse color = blue ;if I'm a cooperator
+    [
+      ifelse random-float 1 < 0.1
+      [
+        let currenergy energy
+
+        ask turtles with [color = blue]
+        [
+          ifelse random-float 1 < 1
+          [
+            set energy (energy + (currenergy / nblue))
+          ]
+          [
+          ]
+
+        ]
+        set energy 0
+
+        ;let partner (one-of ((turtles-on neighbors) with [color = blue]))
+        ;;the rest only runs if a partner is found
+        ;if partner != nobody
+        ;[
+         ; ask partner [set energy (energy + 1000)]
+         ; set energy 0
+        ;]
+      ]
+      [
+
+      ]
+    ]
+    [
+
+    ]
+
+
+
+    ;;energy loss
+    set energy (energy - cost-of-living)
+    if energy > max-energy [ set energy max-energy ]
+
+    ;;movement
+    if (not played?) [ move2 ];;if didn't find coplayer, move
+  ]
+  ;test
   tick
-  ask (turtles) [
-                take-food
-                if (random energy) > 30 [give-birth ]   ; "30" should really be a variable too; this is bad style to bury a parameter like this. Determines amount of investment per child
-                if (show-knowledge != 0)
-                    [ update-looks-knowhow ]
-                set energy (energy - 1)
-                move-somewhere
-                set age (age + 1)
-                live-or-die
-                if (breed = talker) [
-                  communicate
-                  ]
-              ]
-;  if (food-depletes?) [ ; conditionals slow things down, but we used this initially to debug.  But it's not very ecological to be able to eat without destroying the plants!
-    ask patches
-      [ fill-patches-special
-        fill-patches-regular
-        update-patches ]
-;      ] ; if food depletes
-
- if remainder ticks 8 = 0 [update-plot]   ; only update plots one tick in 8.  Note you can comment this out to make it run faster too.
-  ; if (count turtles = 0) [(show (word "turtles became extinct at:" ticks)) stop] ;; never happens so excised for speed
-;  if (ticks = simulation-runtime) [(show "time's up!") stop]
 end
 
+to test
+  let index 0  ; list index starts at 0 in NL
+  create-turtles 4
 
-to take-food
-let k 0
-
-set k knowhow
-; here-list is taken to refer to a value of patch-here. This is good
-   if (first here-list = 1)       ;first check for regular food
-      [set energy (energy + regular)
-       ]
-   if (sum (map [?1 * ?2] knowhow ( butfirst here-list)) = 1)  ;check for the spec. stuff
-       [set energy (energy + (regular * 2))
-       ]
-
-     ask patch-here [ set here-list fput 0 (adjust-here-list (butfirst here-list) k)
-                      update-patches]
-
-   ; if there was regular food and the agent had less then max enenrgy, it has been eaten
-   ; if there wasn't first here-list will remain 0
-   ; the rest of here-list has to be updated depending on agent know-how
-   ; because we are now in a patch procedure, turtle know-how cannot be accesed and has
-   ; to be stored in an extra variable
-   ; `update-patches' actually works on 1 patch at the time
+  ; after all 3 are created, each one runs the following code
+  [ let loc item index [ [0 0] [0 1] [1 0] [1 1]]  ; get the next loc from the list
+    setxy (item 0 loc) (item 1 loc)  ; loc itself is a list, first item x, second item y
+    set index index + 1  ; increment the index
+  ]
 end
 
-to communicate
-  let n 0
+;;Find an interaction partner and play PD game with them
+to interact
+  let partner (one-of ((turtles-on neighbors) with [played? = false]))
+  ;;the rest only runs if a partner is found
+  if partner != nobody [
+    set played? true
+    ask partner [set played? true]
 
-  if (num-special-food-strat != 0) [
-    ;;pick an item that is 1: first make a list of all the items that are 1
-    ;;then randomly pick 1 to tell neighbours
-    if (sum knowhow) > 0
-      [set n (one-of (non-zero knowhow 0))
-       ask turtles in-radius broadcast-radius
-         [ set knowhow (replace-item n knowhow 1)]]
-               ]
-end
-
-to live-or-die
-
-  if (energy < 0) or (age > lifespan)
-                 [
-                   ; show word word energy " is energy, age is " age
-                   die
-                 ]
-end
-
-
-to give-birth
-
-           hatch 1  [
-                        set age 0
-                        set energy (energy * 0.2)
-                        ;; if there were going to be cultural maternal effects, the code would go here
-
-                        get-infant-knowledge  ; for no particular reason except code efficiency, the agents learn at birth whatever they would individually discover in their lifetime
-                        mutate-or-not ; may change breed...
-                        ]
-             set energy (energy * 0.8)  ; keep the overall energy the same
-
-end
-
-
-; "infant": for no particular reason except code efficiency, the agents learn at birth whatever they would individually discover in their lifetime
-to get-infant-knowledge
-let ixi 0
-
-      set knowhow n-values num-special-food-strat [0]
-                        if ((num-special-food-strat > 0) and (random-float 1 < p-knowhow)) [
-                          set ixi (random num-special-food-strat)
-                          set knowhow replace-item ixi knowhow 1
-                          ]
- end
-
-
-;;;;;;;;;;HOW TO MOVE;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-; two parmeters from interface affect this
-;;            run-dist          ;; approx distance moved per turn , see below
-;;            travel-mode       ;; exact distance; levi flight; smooth distribution; or warp
-to move-somewhere
-  rt random 360  ; turn somewhere (silly if warping)
-  move-forward
-end
-
-to move-forward
-  ifelse (travel-mode = "warp") [warp]
-  [; else not warp
-    fd ifelse-value (travel-mode = "gamma distribution") [gamma-flight run-dist] ; Was Levy Flight -- see Edwards et al 2007
-         [ ifelse-value (travel-mode = "exact distance") [run-dist]
-         [ random-float run-dist] ; not exact, so else "smooth distribution"
-        ] ; not gamma-flight
-      ] ; not warp
-end
-
-to warp
-  setxy (random world-width)  ;; randomize the turtle locations
-        (random world-height)
-end
-
-; this is all from Edwards et al 2007 (more natural than Levy Flight) via Dr. Lowe
-to-report gamma-flight [len]
-let mn len / 2
-let gm (len ^ 2) / 12  ; yes I know the parens should be redundant
-let alpha (mn ^ 2 ) / gm
-let lambda mn / gm
-; let out 0 ; for debugging -- normally report directly
-
-;alpha and lambda are what netlogo calls its gamma parameters, but they don't document what they really are.
-;alpha is really shape, and lambda is really rate.
-
-report (random-gamma alpha lambda)
-;output-print out  ; for debugging, delete later
-;report out
-
-end
-
-
-;;;;;;;;;; DISPLAY ;;;;;;;;;;;;;;;;;;;;;;
-;; every time the flip-button is pressed
-;; the value of show-knowledge is incremented by one untill its greater then the
-;; number of different things in the environment, then it is set back to 1
-;; the value of show-knowledge corresponds to the turtles' knowledge-slots
-
-to flip-color
-
-if (num-special-food-strat != 0)
- [ set show-knowledge (show-knowledge + 1)
-   if show-knowledge > num-special-food-strat [set show-knowledge 1]
-   ask turtles [ update-looks-knowhow ]
- ]
-end
-
-to knowledge-gradient
-
-set show-knowledge (num-special-food-strat + 42)
-ask turtles [ update-looks-gradient ]
-end
-
-to update-looks-knowhow
-ifelse (show-knowledge > num-special-food-strat) [ update-looks-gradient ]
-                                                 [ set color ifelse-value (item (show-knowledge - 1) knowhow = 1)[ktc][tc] ]
-end
-
-to update-looks-gradient
-let k (sum knowhow)
-set color ifelse-value (k = 0)[tc] [ifelse-value
-                       (k = 1)[106] [ifelse-value
-                       (k = 2)[116 ] [ifelse-value
-                       (k = 3)[126] [ifelse-value
-                       (k = 4)[136] ; k > 4
-                              [9] ]]]]
-
-end
-
-;to update-patches-food
-;set color (((only-one (item (show-knowledge - 1) (butfirst (herelist)))) * 10 * show-knowledge) + 14 )
-;end
-
-to color-off
-set show-knowledge 0
-set color tc
-end
-
-
-
-;;;;;;;;;;;;;;;UTILITIES, AUXILLARY REPORTERS AND PROCEDURES;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-; some of these were used only in early analysis, might be fun for others.
-
-;;takes 2 lists and outputs one list that is 'adjusted'
-;;the list describing the food available at a certain patch is
-;;adjusted according to the list describing turtle knowhow
-;; assumes turtle ate everything it knew how to eat!
-to-report adjust-here-list [hrlst knwhw]
-if hrlst = [] [report []]
-ifelse (first knwhw = 1) [ report (fput 0 (adjust-here-list (butfirst hrlst) (butfirst knwhw))) ]
-                         [ report (fput (first hrlst) (adjust-here-list (butfirst hrlst) (butfirst knwhw))) ]
-end
-
-;;adds 1 to item n of list l
-to-report add-food [n l]
-report (replace-item n l ((item n l) + 1 ) )
-end
-
-;;takes a list and returns the list of non-zero item-numbers
-;n is the counter
-to-report non-zero [l n]
-if l = [] [report []]
-ifelse (first l = 1) [report fput n (non-zero butfirst l (n + 1))] [report non-zero butfirst l (n + 1)]
-end
-
-
-;;sum over lots of lists
-to-report sum-list [lijst-van-lijsten]
-if (lijst-van-lijsten = []) [report []]
-report sum2 (first lijst-van-lijsten) (sum-list (but-first lijst-van-lijsten))
-end
-
-;;sum over 2 lists
-to-report sum2 [list1 list2]
-if (list2 = []) [report list1]
-report (map [?1 + ?2] list1 list2)
-end
-
-to-report field
-report (world-width  * world-height)
-end
-
-;reports 1 if n > 0
-to-report only-one [n]
-ifelse (n > 0) [report 1] [report 0]
-end
-
-;returns some information on the knowledge spread and the amount of food
-to show-values
-let soc-turtles (turtle-set talker silent)
-let n 0
-  let t 0
-
-set n 0
-set t ((count soc-turtles) / 100)
-print (word "time: " ticks ", agents: " round (t * 100))
-repeat num-special-food-strat
-    [ print ( word
-               count soc-turtles with [ item n knowhow = 1]
-               " agents know item " (n + 1)
-               " (" precision ((count soc-turtles with [ item n knowhow = 1]) / t) 3 "%)")
-      print ( word
-               count soc-turtles with [ (sum knowhow) = (n + 1) ]
-               " agents know " (n + 1) " items"
-               " (" precision ((count soc-turtles with [ sum knowhow = (n + 1) ]) / t) 3 "%)")
-      print ( word
-               count patches with [ item (n + 1) here-list = 1 ]
-               "patches have food type " (n + 1))
-      set n (n + 1)
-               ]
-print (word (count patches with [first here-list = 1]) " patches with regular food")
-print (word (count soc-turtles with [sum knowhow =  0]) " agents know nothing")
-print (word "total food = " (((count patches with [first here-list = 1]) * 5)
-                            + ((count patches with [sum butfirst here-list = 1]) * 10)))
-print (word "patches with regular food " (count patches with [first here-list = 1])
-            " (" precision (((count patches with [first here-list = 1]) / field) * 100) 2 "%)")
-print (word "patches with special food " (count patches with [sum butfirst here-list = 1])
-            " (" precision (((count patches with [sum butfirst here-list = 1]) / field) * 100) 2 "%)")
-if (any? talker)  [
-   print (word "avarage knowhow talker: " (precision (mean ([sum knowhow] of talker)) 2) )
-   print (word "standard deviation: " (precision (standard-deviation ([sum knowhow] of talker)) 2) ) ]
-if (any? silent)  [
-   print (word "avarage knowhow silent: " (precision (mean ([sum knowhow] of silent)) 2) )
-   print (word "standard deviation: " (precision (standard-deviation ([sum knowhow] of silent)) 2) ) ]
-end
-
-;; this happens if you push the "add silents" button.  It introduces some more free riders, just in case you can't believe they won't die out again (they will).
-to get-silents
-let soc-turtles (turtle-set talker silent)
-let c 0
-  let k 0
-
-set c (0.5 * (count soc-turtles))
-set k ((mean ([sum knowhow] of talker)) / num-special-food-strat)
-ask n-of c talker [die] ;kill off half the talkers
-create-silent c                                      ;; create given number of silents
-ask silent [set age random lifespan                    ;; set age to hatchlings (fput kind hatchlingsrandom number < lifespan
-            setxy (random world-width)  ;; randomize the turtle locations
-                  (random world-height)
-            set energy (random-normal 18 0.9 )
-            set knowhow n-values num-special-food-strat [round (((random 100) / 100) - (0.50 - k))]
-            set color 97 ]
-end
-
-
-;;;;;;;;;;;;;;;THE PLOTTING PART;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-
-to setup-plot
-  set-current-plot "t-s-knowhow"
-  set-plot-x-range 0 num-food-strat
-  set-histogram-num-bars num-food-strat
-  set-current-plot "cost of speaking"
-  set-plot-x-range 0 num-food-strat
-end
-
-to update-plot
-update-plot-all
-;update-plot-offspring
-update-t-s-knowhow
-update-cost-of-speaking
-; update-speaking-cost-over-time
-;update-type-of-food
-end
-
-to update-agegroups
-let soc-turtles (turtle-set talker silent)
-set-current-plot "agegroups"
-histogram [ age ] of soc-turtles          ; using the default plot pen
-end
-
-to update-plot-all
-let c 0
-let soc-turtles (turtle-set talker silent)
-
-;locals [c r]
-set-current-plot "plot-all"
-set-current-plot-pen "turtles"
-  plot count soc-turtles
-set-current-plot-pen "reg-food"
-  plot ceiling ( 0.4 * (count patches with [(first here-list) = 1 ]))
-set-current-plot-pen "spec-food"
-  plot ceiling (0.4 * (count patches with [ sum (butfirst here-list) = 1]) )
-set-current-plot-pen "prop. talk"
- plot ceiling (expected-graph-max * ((count talker) / ((count silent) + (count talker))))
-set-current-plot-pen "know"
-  if (count soc-turtles != 0) [ plot ceiling (foodstrat-graph-const * ((sum [sum knowhow] of soc-turtles) / (count soc-turtles)))]
-end
-
-
-; update the barchart
-to update-knowledge
-let l 0
-let soc-turtles (turtle-set talker silent)
-
-set l (sum-list ([knowhow] of soc-turtles))
-set l (map [ ( ? / (count soc-turtles)) * 100] l)
-; choose the plot
-set-current-plot "knowledge"
-; set the height of the plot
-;set-plot-y-range 0 (max l)
-; set the width of the plot (will change)
-set-plot-x-range 0 num-special-food-strat
-; make sure the "default" pen is selected
-set-current-plot-pen "default"
-; reset the plot pen (so plotting starts from the left)
-plot-pen-reset
-; make sure it's a bar plot
-set-plot-pen-mode 1
-; add bars to the plot
-foreach (n-values (length l) [ ? ] )
-  [ ; ?1 is index
-  plot ( item ?1 l )
+    ifelse color = blue ;if I'm a cooperator
+    [
+      ifelse ([color] of partner) = blue
+      [
+        set energy (energy + payoff-CC)
+        ask partner [set energy (energy + payoff-CC)]
+      ]
+      [
+        set energy (energy + payoff-CD)
+        ask partner [set energy (energy + payoff-DC)]
+      ]
+    ]
+    [ ;if I'm a defector
+      ifelse ([color] of partner) = blue
+      [
+        set energy (energy + payoff-DC)
+        ask partner [set energy (energy + payoff-CD)]
+      ]
+      [
+        set energy (energy + payoff-DD)
+        ask partner [set energy (energy + payoff-DD)]
+      ]
+    ]
   ]
 end
 
 
-to-report energy-talkers
-report mean ([energy] of talker)
+;;move to a random new location if no one to play with
+;;for now, just move to any available space in the Moore neigborhood.
+to move
+  let new-patch (one-of neighbors with [ not any? turtles-here ])
+  if (new-patch != nobody)
+  [
+    move-to new-patch
+  ]
 end
 
-to-report energy-silent
-report mean ([energy] of silent)
-end
-
-to-report safe-standard-deviation [lll]
-  ifelse (length lll > 1)
-    [report standard-deviation lll]
-    [report 0]
-end
-to-report safe-mean [lll]
-  ifelse (length lll > 0)
-    [report mean lll]
-    [report 0]
-end
-
-to-report avg-silent-k [iii]
-    report safe-mean [energy] of (silent with [iii = sum knowhow])
-end
-to-report sd-silent-k [iii]
-    report safe-standard-deviation [energy] of (silent with [iii = sum knowhow])
-end
-to-report count-silent-k [iii]
-    report count silent with [iii = sum knowhow]
-end
-to-report avg-talker-k [iii]
-    report safe-mean [energy] of (talker with [iii = sum knowhow])
-end
-to-report sd-talker-k [iii]
-    report safe-standard-deviation [energy] of (talker with [iii = sum knowhow])
-end
-to-report count-talker-k [iii]
-    report count talker with [iii = sum knowhow]
-end
-
-;plots the age of the turtles having offspring
-to update-plot-offspring
-set-current-plot "offspring"
-set-current-plot-pen "age"
-set-plot-pen-mode 2
-end
-
-;plots number of turtles knowing 1-2-3 etc things, for each breed
-to update-t-s-knowhow
-let s 0
-  let t 0
-
-set-current-plot "t-s-knowhow"
-set-current-plot-pen "silent"
-set-plot-pen-mode 1
-histogram [sum knowhow] of silent
-set-current-plot-pen "talker"
-set-plot-pen-mode 1
-histogram [sum knowhow] of talker
-end
-
-
-;plots number of turtles knowing 1-2-3 etc things, for each breed
-to update-cost-of-speaking
-let iii 0
-
-set-current-plot "cost of speaking"
-set iii 0
-clear-plot
-while [iii < num-food-strat] [
-  set-current-plot-pen "silent"
-  ifelse (any? silent with [iii = sum knowhow])
-    [plotxy iii mean [energy] of (silent with [iii = sum knowhow])]
-    [plotxy iii 0]
-  set-current-plot-pen "talker"
-  ifelse (any? talker with [iii = sum knowhow])
-    [plotxy iii mean [energy] of (talker with [iii = sum knowhow])]
-    [plotxy iii 0]
-  set iii iii + 1
+;;movement more in line with original Am Nat model
+;;agent chooses square to move to, and only then checks if it's occupied
+to move2
+  let new-patch (one-of neighbors)
+  if (not any? turtles-on new-patch)
+  [
+    move-to new-patch
   ]
 end
 
 
-;plots number of turtles knowing 1-2-3 etc things, for each breed
-to update-speaking-cost-over-time
-let iii 0
-  let yyy 0
-
-set-current-plot "speaking cost over time"
-set iii 1
-while [iii < 6] [
-  set-current-plot-pen word iii " things"
-  set yyy energy-diff iii
-  plot yyy
-  set iii iii + 1
+;;attempt to place a duplicate agent in a neighboring cell
+to reproduce
+  let new-patch (one-of neighbors with [ not any? turtles-here ])
+  if (new-patch != nobody)
+  [
+    set energy (energy - reproduce-cost)
+    hatch 1 [
+      set energy reproduce-cost
+      move-to new-patch
+      set played? false
+  ]
   ]
 end
 
-to-report energy-diff [sum-know-how]
-let sss 0
-  let ttt 0
-
-ifelse (any? talker with [sum-know-how = sum knowhow])
-      [set ttt mean [energy] of (talker with [sum-know-how = sum knowhow])]
-      [set ttt 0]
-ifelse (any? silent with [sum-know-how = sum knowhow])
-      [set sss mean [energy] of (silent with [sum-know-how = sum knowhow])]
-      [set sss 0]
- report sss - ttt
+;;random agents lose energy if population exceeds carrying capacity
+to cull-herd
+  if (count turtles > carrying-capacity)
+  [
+    ask one-of turtles [
+      set energy ( energy - 10 )
+    ]
+  ]
 end
+
+
+;;for plotting
+
+to-report rep-coop-freq
+  let Nc (count turtles with [ color = blue ])
+  let N (count turtles)
+  report Nc / N
+end
+
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+;; Copyright 2017 Paul Smaldino
+;; See info tab for details
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 @#$#@#$#@
 GRAPHICS-WINDOW
-365
-10
-1343
-1009
-60
-60
-8.0
+211
+8
+499
+297
+-1
+-1
+4.0
 1
 10
 1
@@ -647,127 +247,53 @@ GRAPHICS-WINDOW
 1
 1
 1
--60
-60
--60
-60
-0
-0
+-35
+34
+-35
+34
+1
+1
 1
 ticks
 30.0
 
+SLIDER
+9
+339
+181
+372
+num-agents
+num-agents
+1
+2500
+160.0
+1
+1
+NIL
+HORIZONTAL
+
+SLIDER
+9
+381
+181
+414
+init-coop-freq
+init-coop-freq
+0
+1
+0.5
+.01
+1
+NIL
+HORIZONTAL
+
 BUTTON
-25
-10
-115
-49
+21
+32
+193
+66
+NIL
 setup
-setup
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-SLIDER
-10
-159
-226
-192
-starting-proportion-altruists
-starting-proportion-altruists
-0
-1
-0.1
-0.05
-1
-NIL
-HORIZONTAL
-
-BUTTON
-143
-12
-206
-45
-go
-go
-T
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-PLOT
-6
-716
-502
-1061
-plot-all
-NIL
-NIL
-0.0
-100.0
-0.0
-100.0
-true
-true
-"" ""
-PENS
-"turtles" 1.0 0 -13345367 true "" ""
-"reg-food" 1.0 0 -2674135 true "" ""
-"know" 1.0 0 -10899396 true "" ""
-"spec-food" 1.0 0 -955883 true "" ""
-"prop. talk" 1.0 0 -7500403 true "" ""
-
-MONITOR
-16
-604
-107
-649
-NIL
-energy-talkers
-0
-1
-11
-
-MONITOR
-111
-604
-214
-649
-energy-silents
-energy-silent
-0
-1
-11
-
-MONITOR
-17
-653
-132
-698
-ratio talker/silent
-(count talker)/((count silent) + (count talker))
-3
-1
-11
-
-BUTTON
-11
-544
-116
-577
-who knows?
-flip-color
 NIL
 1
 T
@@ -779,281 +305,29 @@ NIL
 1
 
 BUTTON
-250
-504
-319
-537
-color off
-color-off
-NIL
-1
-T
-TURTLE
-NIL
-NIL
-NIL
-NIL
-1
-
-BUTTON
-243
-13
-313
-46
-go 1x
-go
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-PLOT
-508
-723
-708
-873
-t-s-knowhow
-# things known
-#  agents
-0.0
-10.0
-0.0
-100.0
-true
-true
-"" ""
-PENS
-"silent" 1.0 1 -13345367 true "" ""
-"talker" 1.0 1 -5825686 true "" ""
-
-BUTTON
-273
-661
-387
-694
-NIL
-show-values
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-BUTTON
-155
-661
-259
-694
-add silents
-get-silents
-NIL
-1
-T
-OBSERVER
-NIL
-NIL
-NIL
-NIL
-1
-
-SLIDER
-12
-238
-168
-271
-run-dist
-run-dist
-0
-5
-1.5
-0.25
-1
-NIL
-HORIZONTAL
-
-CHOOSER
-198
-236
-335
-281
-travel-mode
-travel-mode
-"exact distance" "gamma distribution" "smooth distribution" "warp"
-2
-
-SLIDER
-10
-196
-150
-229
-num-food-strat
-num-food-strat
-1
-20
-8
-1
-1
-NIL
-HORIZONTAL
-
-SLIDER
-172
-196
-314
-229
-lifespan
-lifespan
-5
-100
-65
-5
-1
-NIL
-HORIZONTAL
-
-SLIDER
-11
-117
-199
-150
-start-num-turtles
-start-num-turtles
-0
-4000
-750
-250
-1
-NIL
-HORIZONTAL
-
-PLOT
-509
-876
-708
-1026
-cost of speaking
-# things known
-avg. energy
-0.0
-10.0
-0.0
-10.0
-true
-true
-"" ""
-PENS
-"silent" 1.0 1 -13345367 true "" ""
-"talker" 1.0 1 -5825686 true "" ""
-
-SLIDER
-3
-334
-269
-367
-food-replacement-rate
-food-replacement-rate
-0
-10
-3.5
-.1
-1
-% per cycle
-HORIZONTAL
-
-SLIDER
-3
-370
-306
-403
-ratio-of-special-foods
-ratio-of-special-foods
--8
-8
--8
-1
-1
-(2 is raised to this)
-HORIZONTAL
-
-SLIDER
-109
-420
-371
-453
-freq-of-mutation
-freq-of-mutation
-0
-10
-5
-1
-1
-(1 in 10 raised to this)
-HORIZONTAL
-
-SWITCH
-6
-420
+22
+72
+108
 106
-453
-mutation?
-mutation?
-0
-1
--1000
-
-SLIDER
-11
-276
-175
-309
-broadcast-radius
-broadcast-radius
-0
-10
-2.4
-.1
-1
 NIL
-HORIZONTAL
-
-MONITOR
-285
-603
-342
-648
+go
+T
+1
+T
+OBSERVER
 NIL
-ticks
-17
+NIL
+NIL
+NIL
 1
-11
-
-MONITOR
-121
-532
-206
-577
-knows what
-show-knowledge
-17
-1
-11
 
 BUTTON
-215
-544
-355
-577
-who knows most?
-knowledge-gradient
+112
+72
+194
+106
+go once
+go
 NIL
 1
 T
@@ -1064,887 +338,451 @@ NIL
 NIL
 1
 
-MONITOR
-10
-495
-103
-540
+SLIDER
+326
+351
+498
+384
+carrying-capacity
+carrying-capacity
+1
+10000
+4900.0
+1
+1
 NIL
-count turtles
+HORIZONTAL
+
+SLIDER
+20
+118
+192
+151
+cost-of-living
+cost-of-living
 0
+2
+1.0
+.25
+1
+NIL
+HORIZONTAL
+
+SLIDER
+329
+390
+501
+423
+payoff-CD
+payoff-CD
+-10
+3
+2.0
+.1
+1
+NIL
+HORIZONTAL
+
+PLOT
+633
+13
+833
+197
+populations
+ticks
+number of agents
+0.0
+10.0
+0.0
+10.0
+true
+false
+"" ""
+PENS
+"cooperators" 1.0 0 -13345367 true "" "plot count turtles with [color = blue]"
+"defectors" 1.0 0 -2674135 true "" "plot count turtles with [color = red]"
+
+PLOT
+630
+215
+830
+365
+cooperator frequency
+ticks
+coop freq
+0.0
+10.0
+0.0
+1.0
+true
+false
+"" ""
+PENS
+"default" 1.0 0 -16777216 true "" "plot rep-coop-freq"
+
+MONITOR
+630
+372
+688
+417
+N
+count turtles
+17
 1
 11
+
+SLIDER
+21
+179
+193
+212
+suicide-rate
+suicide-rate
+0.0001
+100
+50.0
+1
+1
+NIL
+HORIZONTAL
 
 @#$#@#$#@
 ## WHAT IS IT?
 
-This model starts from an existing model (by Cace & Bryson) showing that altruistic communication is adaptive.  This model looks at the reasons why, if this is so, it adapts so rarely, or in such limited ways.
-
-My hypothesis is that too-rapid communication of behaviour leads to ecologically unstable strategies.  This is a seperate but not exclusive explanation from the Boyd & Richerson claim that the problem is just the rate of change in the environment drives demand for individual vs. cultural learning.  In principle, there is no reason that cultures couldn't adapt *faster* than individuals.
-
-Optimizations
-
-Make fast verison where food always depletes, agents never show knowledge
-
-## SPECIAL NOTE
-
-This has not yet been submitted as a paper.
+This is a spatial Prisoner's Dilemma (PD) game model, in which agents play games with neighbors for energy payoffs, which they use to reproduce locally. Being alive costs energy, and so agents must receive cooperation to stay alive. This is a replication of the model presented in Smaldino, Schank, & McElreath (2013) and Smaldino (2013). 
+See below for paper details. 
 
 ## HOW IT WORKS
 
-*life and death
-Agents are hatched inheriting only their parents breed, talker or silent
-When they run out of energy or reach the maximum age, the agents die.
-
-*communication
-At every time-step the communicators will pick one thing they know of and communicate this to the turtles around them. As a result the others will be able to eat the food they now learned about.
-They also communicate to their offspring. The knowledge-transfer variable determines the probability for every single bit of parental know-how being dispensed to the offspring.
-
-*feeding
-When the turtles that know are at a patch with the food they know of, they get more energy.
-
-*patches
-The user defines the rate at which food is added to the environment. Every patch has the probability of (replace-rate/1000) of being filled with food.
-
-*the walkabout
-The turtles walk around according to levi flight. Foraging animals and foraging optimised agents, regardsless of their implementation (genetic algorithms, NN) do the levi flight.
-The probability of a step of lenghth l is P(l):
-P(l) = 1/z * 1/l^mu
-z is a normalizing constant.
-mu is a value between 1 and 3. For this model i have taken 1/mu= 0.3.
-
-The turns are just random.
-
-## HOW TO USE IT
-
-## SETUP_BUTTONS:
-
-+ replace-rate-regular: replace rate of the regular food
-+ replace-rate-special: replace rate of the special food
-+ no things: the number of types of food: there is always 1 type, the regular.
-+ num-turtles: number of turtles in the model. The number of turtles the model will eventually settle down to wil depend on its size and on the amount of food.
-+ p-communicators: the initial probability of a turtle being a talker
-+ p-knowhow: probability, per bit of knowledge, of a turtle knowing something
-+ knowledge-transfer: the probability for every single bit of parental know-how being dispensed to the offspring
-
-## DISPLAY:
-
-+ flip: every time the flip-button is pressed it colours all turtles with a 1 in a different knowledge-slot in a different colour then the turtles that have a 0 in that particular knowledge-slot.
-+ colour-off: colours all turtles the same
-+ show-values: shows the current values for some interesting properties (like the number of agents knowing about food type x)
-
-## RELATED MODELS
-
-In 2007 JJB branched this model from the archival version of the FreeInfo model that was submitted to Nature in April 2007.  That model was derived from an early version of the model Ivana Cace used for her diploma / MSc dissertation at Utrecht.
+See referenced papers for details. 
 
 ## CREDITS AND REFERENCES
 
-Environment:
-The algorithm for putting food in the environment is taken from the Rabbits Grass Weeds model.
-Copyright 1998 by Uri Wilensky.  All rights reserved.  See
-; http://ccl.northwestern.edu/netlogo/models/RabbitsGrassWeeds
-; for terms of use.
+This model is a replication of one previously presented in the following two papers: 
 
-Levi-flight
-see:
-Universal Properties of Adaptive Behaviour
-Michel van Dartel Eric Postma Jaap van den Herik
-IKAT, Universiteit Maastricht, P.O. Box 616 6200 MD Maastricht
+Smaldino PE, Schank JC, McElreath R (2013) Increased costs of cooperation help cooperators in the long run. American Naturalist 181: 451-463.
 
-But the idea (mine and probably theirs too) comes from a talk at the BNAIS conference in Utrecht some years ago, 2001?
+Smaldino PE (2013) Cooperation in harsh environments and the emergence of spatial patterns. Chaos, Solitons, and Fractals 56: 6-12.
+
+This NetLogo instatiation was created by Paul Smaldino in 2017.
+
+## COPYRIGHT AND LICENSE
+
+Copyright 2017 Paul Smaldino.
+
+![CC BY-NC-SA 3.0](http://ccl.northwestern.edu/images/creativecommons/byncsa.png)
+
+This work is licensed under the Creative Commons Attribution-NonCommercial-ShareAlike 3.0 License.  To view a copy of this license, visit https://creativecommons.org/licenses/by-nc-sa/3.0/ or send a letter to Creative Commons, 559 Nathan Abbott Way, Stanford, California 94305, USA.
 @#$#@#$#@
 default
 true
 0
 Polygon -7500403 true true 150 5 40 250 150 205 260 250
 
-ant
+airplane
 true
 0
-Polygon -7500403 true true 136 61 129 46 144 30 119 45 124 60 114 82 97 37 132 10 93 36 111 84 127 105 172 105 189 84 208 35 171 11 202 35 204 37 186 82 177 60 180 44 159 32 170 44 165 60
-Polygon -7500403 true true 150 95 135 103 139 117 125 149 137 180 135 196 150 204 166 195 161 180 174 150 158 116 164 102
-Polygon -7500403 true true 149 186 128 197 114 232 134 270 149 282 166 270 185 232 171 195 149 186
-Polygon -7500403 true true 225 66 230 107 159 122 161 127 234 111 236 106
-Polygon -7500403 true true 78 58 99 116 139 123 137 128 95 119
-Polygon -7500403 true true 48 103 90 147 129 147 130 151 86 151
-Polygon -7500403 true true 65 224 92 171 134 160 135 164 95 175
-Polygon -7500403 true true 235 222 210 170 163 162 161 166 208 174
-Polygon -7500403 true true 249 107 211 147 168 147 168 150 213 150
+Polygon -7500403 true true 150 0 135 15 120 60 120 105 15 165 15 195 120 180 135 240 105 270 120 285 150 270 180 285 210 270 165 240 180 180 285 195 285 165 180 105 180 60 165 15
 
 arrow
 true
 0
 Polygon -7500403 true true 150 0 0 150 105 150 105 293 195 293 195 150 300 150
 
-bee
-true
-0
-Polygon -1184463 true false 152 149 77 163 67 195 67 211 74 234 85 252 100 264 116 276 134 286 151 300 167 285 182 278 206 260 220 242 226 218 226 195 222 166
-Polygon -16777216 true false 150 149 128 151 114 151 98 145 80 122 80 103 81 83 95 67 117 58 141 54 151 53 177 55 195 66 207 82 211 94 211 116 204 139 189 149 171 152
-Polygon -7500403 true true 151 54 119 59 96 60 81 50 78 39 87 25 103 18 115 23 121 13 150 1 180 14 189 23 197 17 210 19 222 30 222 44 212 57 192 58
-Polygon -16777216 true false 70 185 74 171 223 172 224 186
-Polygon -16777216 true false 67 211 71 226 224 226 225 211 67 211
-Polygon -16777216 true false 91 257 106 269 195 269 211 255
-Line -1 false 144 100 70 87
-Line -1 false 70 87 45 87
-Line -1 false 45 86 26 97
-Line -1 false 26 96 22 115
-Line -1 false 22 115 25 130
-Line -1 false 26 131 37 141
-Line -1 false 37 141 55 144
-Line -1 false 55 143 143 101
-Line -1 false 141 100 227 138
-Line -1 false 227 138 241 137
-Line -1 false 241 137 249 129
-Line -1 false 249 129 254 110
-Line -1 false 253 108 248 97
-Line -1 false 249 95 235 82
-Line -1 false 235 82 144 100
-
-bird1
-false
-0
-Polygon -7500403 true true 2 6 2 39 270 298 297 298 299 271 187 160 279 75 276 22 100 67 31 0
-
-bird2
-false
-0
-Polygon -7500403 true true 2 4 33 4 298 270 298 298 272 298 155 184 117 289 61 295 61 105 0 43
-
-boat1
-false
-0
-Polygon -1 true false 63 162 90 207 223 207 290 162
-Rectangle -6459832 true false 150 32 157 162
-Polygon -13345367 true false 150 34 131 49 145 47 147 48 149 49
-Polygon -7500403 true true 158 33 230 157 182 150 169 151 157 156
-Polygon -7500403 true true 149 55 88 143 103 139 111 136 117 139 126 145 130 147 139 147 146 146 149 55
-
-boat2
-false
-0
-Polygon -1 true false 63 162 90 207 223 207 290 162
-Rectangle -6459832 true false 150 32 157 162
-Polygon -13345367 true false 150 34 131 49 145 47 147 48 149 49
-Polygon -7500403 true true 157 54 175 79 174 96 185 102 178 112 194 124 196 131 190 139 192 146 211 151 216 154 157 154
-Polygon -7500403 true true 150 74 146 91 139 99 143 114 141 123 137 126 131 129 132 139 142 136 126 142 119 147 148 147
-
-boat3
-false
-0
-Polygon -1 true false 63 162 90 207 223 207 290 162
-Rectangle -6459832 true false 150 32 157 162
-Polygon -13345367 true false 150 34 131 49 145 47 147 48 149 49
-Polygon -7500403 true true 158 37 172 45 188 59 202 79 217 109 220 130 218 147 204 156 158 156 161 142 170 123 170 102 169 88 165 62
-Polygon -7500403 true true 149 66 142 78 139 96 141 111 146 139 148 147 110 147 113 131 118 106 126 71
-
 box
-true
+false
 0
-Polygon -7500403 true true 45 255 255 255 255 45 45 45
+Polygon -7500403 true true 150 285 285 225 285 75 150 135
+Polygon -7500403 true true 150 135 15 75 150 15 285 75
+Polygon -7500403 true true 15 75 15 225 150 285 150 135
+Line -16777216 false 150 285 150 135
+Line -16777216 false 150 135 15 75
+Line -16777216 false 150 135 285 75
 
-butterfly1
+bug
 true
 0
-Polygon -16777216 true false 151 76 138 91 138 284 150 296 162 286 162 91
-Polygon -7500403 true true 164 106 184 79 205 61 236 48 259 53 279 86 287 119 289 158 278 177 256 182 164 181
-Polygon -7500403 true true 136 110 119 82 110 71 85 61 59 48 36 56 17 88 6 115 2 147 15 178 134 178
-Polygon -7500403 true true 46 181 28 227 50 255 77 273 112 283 135 274 135 180
-Polygon -7500403 true true 165 185 254 184 272 224 255 251 236 267 191 283 164 276
-Line -7500403 true 167 47 159 82
-Line -7500403 true 136 47 145 81
-Circle -7500403 true true 165 45 8
-Circle -7500403 true true 134 45 6
-Circle -7500403 true true 133 44 7
-Circle -7500403 true true 133 43 8
+Circle -7500403 true true 96 182 108
+Circle -7500403 true true 110 127 80
+Circle -7500403 true true 110 75 80
+Line -7500403 true 150 100 80 30
+Line -7500403 true 150 100 220 30
+
+butterfly
+true
+0
+Polygon -7500403 true true 150 165 209 199 225 225 225 255 195 270 165 255 150 240
+Polygon -7500403 true true 150 165 89 198 75 225 75 255 105 270 135 255 150 240
+Polygon -7500403 true true 139 148 100 105 55 90 25 90 10 105 10 135 25 180 40 195 85 194 139 163
+Polygon -7500403 true true 162 150 200 105 245 90 275 90 290 105 290 135 275 180 260 195 215 195 162 165
+Polygon -16777216 true false 150 255 135 225 120 150 135 120 150 105 165 120 180 150 165 225
+Circle -16777216 true false 135 90 30
+Line -16777216 false 150 105 195 60
+Line -16777216 false 150 105 105 60
+
+car
+false
+0
+Polygon -7500403 true true 300 180 279 164 261 144 240 135 226 132 213 106 203 84 185 63 159 50 135 50 75 60 0 150 0 165 0 225 300 225 300 180
+Circle -16777216 true false 180 180 90
+Circle -16777216 true false 30 180 90
+Polygon -16777216 true false 162 80 132 78 134 135 209 135 194 105 189 96 180 89
+Circle -7500403 true true 47 195 58
+Circle -7500403 true true 195 195 58
 
 circle
 false
 0
-Circle -7500403 true true 35 35 230
+Circle -7500403 true true 0 0 300
 
-link
+circle 2
+false
+0
+Circle -7500403 true true 0 0 300
+Circle -16777216 true false 30 30 240
+
+cow
+false
+0
+Polygon -7500403 true true 200 193 197 249 179 249 177 196 166 187 140 189 93 191 78 179 72 211 49 209 48 181 37 149 25 120 25 89 45 72 103 84 179 75 198 76 252 64 272 81 293 103 285 121 255 121 242 118 224 167
+Polygon -7500403 true true 73 210 86 251 62 249 48 208
+Polygon -7500403 true true 25 114 16 195 9 204 23 213 25 200 39 123
+
+cylinder
+false
+0
+Circle -7500403 true true 0 0 300
+
+dot
+false
+0
+Circle -7500403 true true 90 90 120
+
+face happy
+false
+0
+Circle -7500403 true true 8 8 285
+Circle -16777216 true false 60 75 60
+Circle -16777216 true false 180 75 60
+Polygon -16777216 true false 150 255 90 239 62 213 47 191 67 179 90 203 109 218 150 225 192 218 210 203 227 181 251 194 236 217 212 240
+
+face neutral
+false
+0
+Circle -7500403 true true 8 7 285
+Circle -16777216 true false 60 75 60
+Circle -16777216 true false 180 75 60
+Rectangle -16777216 true false 60 195 240 225
+
+face sad
+false
+0
+Circle -7500403 true true 8 8 285
+Circle -16777216 true false 60 75 60
+Circle -16777216 true false 180 75 60
+Polygon -16777216 true false 150 168 90 184 62 210 47 232 67 244 90 220 109 205 150 198 192 205 210 220 227 242 251 229 236 206 212 183
+
+fish
+false
+0
+Polygon -1 true false 44 131 21 87 15 86 0 120 15 150 0 180 13 214 20 212 45 166
+Polygon -1 true false 135 195 119 235 95 218 76 210 46 204 60 165
+Polygon -1 true false 75 45 83 77 71 103 86 114 166 78 135 60
+Polygon -7500403 true true 30 136 151 77 226 81 280 119 292 146 292 160 287 170 270 195 195 210 151 212 30 166
+Circle -16777216 true false 215 106 30
+
+flag
+false
+0
+Rectangle -7500403 true true 60 15 75 300
+Polygon -7500403 true true 90 150 270 90 90 30
+Line -7500403 true 75 135 90 135
+Line -7500403 true 75 45 90 45
+
+flower
+false
+0
+Polygon -10899396 true false 135 120 165 165 180 210 180 240 150 300 165 300 195 240 195 195 165 135
+Circle -7500403 true true 85 132 38
+Circle -7500403 true true 130 147 38
+Circle -7500403 true true 192 85 38
+Circle -7500403 true true 85 40 38
+Circle -7500403 true true 177 40 38
+Circle -7500403 true true 177 132 38
+Circle -7500403 true true 70 85 38
+Circle -7500403 true true 130 25 38
+Circle -7500403 true true 96 51 108
+Circle -16777216 true false 113 68 74
+Polygon -10899396 true false 189 233 219 188 249 173 279 188 234 218
+Polygon -10899396 true false 180 255 150 210 105 210 75 240 135 240
+
+house
+false
+0
+Rectangle -7500403 true true 45 120 255 285
+Rectangle -16777216 true false 120 210 180 285
+Polygon -7500403 true true 15 120 150 15 285 120
+Line -16777216 false 30 120 270 120
+
+leaf
+false
+0
+Polygon -7500403 true true 150 210 135 195 120 210 60 210 30 195 60 180 60 165 15 135 30 120 15 105 40 104 45 90 60 90 90 105 105 120 120 120 105 60 120 60 135 30 150 15 165 30 180 60 195 60 180 120 195 120 210 105 240 90 255 90 263 104 285 105 270 120 285 135 240 165 240 180 270 195 240 210 180 210 165 195
+Polygon -7500403 true true 135 195 135 240 120 255 105 255 105 285 135 285 165 240 165 195
+
+line
 true
 0
 Line -7500403 true 150 0 150 300
 
-link direction
+line half
 true
 0
-Line -7500403 true 150 150 30 225
-Line -7500403 true 150 150 270 225
+Line -7500403 true 150 0 150 150
 
-loud
+pentagon
 false
-15
-Circle -1 true true 4 9 285
-Rectangle -16777216 true false 118 46 179 246
-Rectangle -1 true true 105 24 189 51
-Rectangle -1 true true 105 31 196 56
-Rectangle -1 true true 99 33 189 60
-Rectangle -1 true true 108 193 205 205
-Rectangle -1 true true 96 193 197 210
-Rectangle -1 true true 174 38 201 267
-Rectangle -1 true true 109 34 123 258
-Rectangle -1 true true 102 26 125 246
-Rectangle -1 true true 171 44 191 254
-Rectangle -16777216 true false 125 36 170 80
-Rectangle -16777216 true false 125 243 170 268
-Rectangle -1 true true 104 195 193 218
-Rectangle -1 true true 172 15 172 21
-Rectangle -1 true true 169 29 192 276
-Rectangle -1 true true 90 197 187 223
-Rectangle -16777216 true false 125 219 168 229
-Rectangle -16777216 true false 157 219 168 232
-Rectangle -16777216 true false 158 219 169 241
-Rectangle -16777216 true false 124 214 168 224
-Rectangle -16777216 true false 160 214 171 215
-Rectangle -16777216 true false 158 215 171 224
-Rectangle -1 true true 168 195 188 227
-Rectangle -16777216 true false 164 214 168 239
-Rectangle -16777216 true false 164 216 172 228
-Rectangle -16777216 true false 165 209 171 223
-Rectangle -1 true true 169 202 185 241
-Rectangle -1 true true 149 198 185 213
-Rectangle -1 true true 159 203 175 213
-Rectangle -1 true true 160 204 175 213
-Rectangle -1 true true 159 207 176 214
-Rectangle -1 true true 109 205 124 228
-Rectangle -1 true true 116 200 124 229
-Rectangle -1 true true 111 206 125 230
+0
+Polygon -7500403 true true 150 15 15 120 60 285 240 285 285 120
 
 person
 false
 0
-Circle -7500403 true true 155 20 63
-Rectangle -7500403 true true 158 79 217 164
-Polygon -7500403 true true 158 81 110 129 131 143 158 109 165 110
-Polygon -7500403 true true 216 83 267 123 248 143 215 107
-Polygon -7500403 true true 167 163 145 234 183 234 183 163
-Polygon -7500403 true true 195 163 195 233 227 233 206 159
+Circle -7500403 true true 110 5 80
+Polygon -7500403 true true 105 90 120 195 90 285 105 300 135 300 150 225 165 300 195 300 210 285 180 195 195 90
+Rectangle -7500403 true true 127 79 172 94
+Polygon -7500403 true true 195 90 240 150 225 180 165 105
+Polygon -7500403 true true 105 90 60 150 75 180 135 105
 
-predator
-true
+plant
+false
 0
-Polygon -2064490 true false 270 255 225 180 105 180 45 255 135 285 165 285
-Polygon -2064490 true false 165 135 165 75 270 60 225 120 165 165 165 135
-Polygon -2064490 true false 135 135 135 75 30 60 75 120 135 165 135 135
+Rectangle -7500403 true true 135 90 165 300
+Polygon -7500403 true true 135 255 90 210 45 195 75 255 135 285
+Polygon -7500403 true true 165 255 210 210 255 195 225 255 165 285
+Polygon -7500403 true true 135 180 90 135 45 120 75 180 135 210
+Polygon -7500403 true true 165 180 165 210 225 180 255 120 210 135
+Polygon -7500403 true true 135 105 90 60 45 45 75 105 135 135
+Polygon -7500403 true true 165 105 165 135 225 105 255 45 210 60
+Polygon -7500403 true true 135 90 120 45 150 15 180 45 165 90
 
 sheep
 false
 15
-Rectangle -1 true true 90 75 270 225
-Circle -1 true true 15 75 150
-Rectangle -16777216 true false 81 225 134 286
-Rectangle -16777216 true false 180 225 238 285
-Circle -16777216 true false 1 88 92
+Circle -1 true true 203 65 88
+Circle -1 true true 70 65 162
+Circle -1 true true 150 105 120
+Polygon -7500403 true false 218 120 240 165 255 165 278 120
+Circle -7500403 true false 214 72 67
+Rectangle -1 true true 164 223 179 298
+Polygon -1 true true 45 285 30 285 30 240 15 195 45 210
+Circle -1 true true 3 83 150
+Rectangle -1 true true 65 221 80 296
+Polygon -1 true true 195 285 210 285 210 240 240 210 195 210
+Polygon -7500403 true false 276 85 285 105 302 99 294 83
+Polygon -7500403 true false 219 85 210 105 193 99 201 83
 
-silent
-false
-15
-Polygon -1 true true 69 6 4 64 200 278 275 210
-Polygon -1 true true 79 276 17 216 203 7 276 67
-
-spacecraft
-true
-0
-Polygon -7500403 true true 150 0 180 135 255 255 225 240 150 180 75 240 45 255 120 135
-
-thin-arrow
-true
-0
-Polygon -7500403 true true 150 0 0 150 120 150 120 293 180 293 180 150 300 150
-
-truck-down
+square
 false
 0
-Polygon -7500403 true true 225 30 225 270 120 270 105 210 60 180 45 30 105 60 105 30
-Polygon -8630108 true false 195 75 195 120 240 120 240 75
-Polygon -8630108 true false 195 225 195 180 240 180 240 225
+Rectangle -7500403 true true 30 30 270 270
 
-truck-left
+square 2
 false
 0
-Polygon -7500403 true true 120 135 225 135 225 210 75 210 75 165 105 165
-Polygon -8630108 true false 90 210 105 225 120 210
-Polygon -8630108 true false 180 210 195 225 210 210
+Rectangle -7500403 true true 30 30 270 270
+Rectangle -16777216 true false 60 60 240 240
 
-truck-right
+star
 false
 0
-Polygon -7500403 true true 180 135 75 135 75 210 225 210 225 165 195 165
-Polygon -8630108 true false 210 210 195 225 180 210
-Polygon -8630108 true false 120 210 105 225 90 210
+Polygon -7500403 true true 151 1 185 108 298 108 207 175 242 282 151 216 59 282 94 175 3 108 116 108
+
+target
+false
+0
+Circle -7500403 true true 0 0 300
+Circle -16777216 true false 30 30 240
+Circle -7500403 true true 60 60 180
+Circle -16777216 true false 90 90 120
+Circle -7500403 true true 120 120 60
+
+tree
+false
+0
+Circle -7500403 true true 118 3 94
+Rectangle -6459832 true false 120 195 180 300
+Circle -7500403 true true 65 21 108
+Circle -7500403 true true 116 41 127
+Circle -7500403 true true 45 90 120
+Circle -7500403 true true 104 74 152
+
+triangle
+false
+0
+Polygon -7500403 true true 150 30 15 255 285 255
+
+triangle 2
+false
+0
+Polygon -7500403 true true 150 30 15 255 285 255
+Polygon -16777216 true false 151 99 225 223 75 224
+
+truck
+false
+0
+Rectangle -7500403 true true 4 45 195 187
+Polygon -7500403 true true 296 193 296 150 259 134 244 104 208 104 207 194
+Rectangle -1 true false 195 60 195 105
+Polygon -16777216 true false 238 112 252 141 219 141 218 112
+Circle -16777216 true false 234 174 42
+Rectangle -7500403 true true 181 185 214 194
+Circle -16777216 true false 144 174 42
+Circle -16777216 true false 24 174 42
+Circle -7500403 false true 24 174 42
+Circle -7500403 false true 144 174 42
+Circle -7500403 false true 234 174 42
 
 turtle
 true
 0
-Polygon -7500403 true true 138 75 162 75 165 105 225 105 225 142 195 135 195 187 225 195 225 225 195 217 195 202 105 202 105 217 75 225 75 195 105 187 105 135 75 142 75 105 135 105
+Polygon -10899396 true false 215 204 240 233 246 254 228 266 215 252 193 210
+Polygon -10899396 true false 195 90 225 75 245 75 260 89 269 108 261 124 240 105 225 105 210 105
+Polygon -10899396 true false 105 90 75 75 55 75 40 89 31 108 39 124 60 105 75 105 90 105
+Polygon -10899396 true false 132 85 134 64 107 51 108 17 150 2 192 18 192 52 169 65 172 87
+Polygon -10899396 true false 85 204 60 233 54 254 72 266 85 252 107 210
+Polygon -7500403 true true 119 75 179 75 209 101 224 135 220 225 175 261 128 261 81 224 74 135 88 99
+
+wheel
+false
+0
+Circle -7500403 true true 3 3 294
+Circle -16777216 true false 30 30 240
+Line -7500403 true 150 285 150 15
+Line -7500403 true 15 150 285 150
+Circle -7500403 true true 120 120 60
+Line -7500403 true 216 40 79 269
+Line -7500403 true 40 84 269 221
+Line -7500403 true 40 216 269 79
+Line -7500403 true 84 40 221 269
 
 wolf
 false
 0
-Rectangle -7500403 true true 15 105 105 165
-Rectangle -7500403 true true 45 90 105 105
-Polygon -7500403 true true 60 90 83 44 104 90
-Polygon -16777216 true false 67 90 82 59 97 89
-Rectangle -1 true false 48 93 59 105
-Rectangle -16777216 true false 51 96 55 101
-Rectangle -16777216 true false 0 121 15 135
-Rectangle -16777216 true false 15 136 60 151
-Polygon -1 true false 15 136 23 149 31 136
-Polygon -1 true false 30 151 37 136 43 151
-Rectangle -7500403 true true 105 120 263 195
-Rectangle -7500403 true true 108 195 259 201
-Rectangle -7500403 true true 114 201 252 210
-Rectangle -7500403 true true 120 210 243 214
-Rectangle -7500403 true true 115 114 255 120
-Rectangle -7500403 true true 128 108 248 114
-Rectangle -7500403 true true 150 105 225 108
-Rectangle -7500403 true true 132 214 155 270
-Rectangle -7500403 true true 110 260 132 270
-Rectangle -7500403 true true 210 214 232 270
-Rectangle -7500403 true true 189 260 210 270
-Line -7500403 true 263 127 281 155
-Line -7500403 true 281 155 281 192
+Polygon -16777216 true false 253 133 245 131 245 133
+Polygon -7500403 true true 2 194 13 197 30 191 38 193 38 205 20 226 20 257 27 265 38 266 40 260 31 253 31 230 60 206 68 198 75 209 66 228 65 243 82 261 84 268 100 267 103 261 77 239 79 231 100 207 98 196 119 201 143 202 160 195 166 210 172 213 173 238 167 251 160 248 154 265 169 264 178 247 186 240 198 260 200 271 217 271 219 262 207 258 195 230 192 198 210 184 227 164 242 144 259 145 284 151 277 141 293 140 299 134 297 127 273 119 270 105
+Polygon -7500403 true true -1 195 14 180 36 166 40 153 53 140 82 131 134 133 159 126 188 115 227 108 236 102 238 98 268 86 269 92 281 87 269 103 269 113
 
-wolf-left
+x
 false
-3
-Polygon -6459832 true true 117 97 91 74 66 74 60 85 36 85 38 92 44 97 62 97 81 117 84 134 92 147 109 152 136 144 174 144 174 103 143 103 134 97
-Polygon -6459832 true true 87 80 79 55 76 79
-Polygon -6459832 true true 81 75 70 58 73 82
-Polygon -6459832 true true 99 131 76 152 76 163 96 182 104 182 109 173 102 167 99 173 87 159 104 140
-Polygon -6459832 true true 107 138 107 186 98 190 99 196 112 196 115 190
-Polygon -6459832 true true 116 140 114 189 105 137
-Rectangle -6459832 true true 109 150 114 192
-Rectangle -6459832 true true 111 143 116 191
-Polygon -6459832 true true 168 106 184 98 205 98 218 115 218 137 186 164 196 176 195 194 178 195 178 183 188 183 169 164 173 144
-Polygon -6459832 true true 207 140 200 163 206 175 207 192 193 189 192 177 198 176 185 150
-Polygon -6459832 true true 214 134 203 168 192 148
-Polygon -6459832 true true 204 151 203 176 193 148
-Polygon -6459832 true true 207 103 221 98 236 101 243 115 243 128 256 142 239 143 233 133 225 115 214 114
-
-wolf-right
-false
-3
-Polygon -6459832 true true 170 127 200 93 231 93 237 103 262 103 261 113 253 119 231 119 215 143 213 160 208 173 189 187 169 190 154 190 126 180 106 171 72 171 73 126 122 126 144 123 159 123
-Polygon -6459832 true true 201 99 214 69 215 99
-Polygon -6459832 true true 207 98 223 71 220 101
-Polygon -6459832 true true 184 172 189 234 203 238 203 246 187 247 180 239 171 180
-Polygon -6459832 true true 197 174 204 220 218 224 219 234 201 232 195 225 179 179
-Polygon -6459832 true true 78 167 95 187 95 208 79 220 92 234 98 235 100 249 81 246 76 241 61 212 65 195 52 170 45 150 44 128 55 121 69 121 81 135
-Polygon -6459832 true true 48 143 58 141
-Polygon -6459832 true true 46 136 68 137
-Polygon -6459832 true true 45 129 35 142 37 159 53 192 47 210 62 238 80 237
-Line -16777216 false 74 237 59 213
-Line -16777216 false 59 213 59 212
-Line -16777216 false 58 211 67 192
-Polygon -6459832 true true 38 138 66 149
-Polygon -6459832 true true 46 128 33 120 21 118 11 123 3 138 5 160 13 178 9 192 0 199 20 196 25 179 24 161 25 148 45 140
-Polygon -6459832 true true 67 122 96 126 63 144
-
+0
+Polygon -7500403 true true 270 75 225 30 30 225 75 270
+Polygon -7500403 true true 30 75 75 30 270 225 225 270
 @#$#@#$#@
-NetLogo 5.3.1
+NetLogo 6.0.3
 @#$#@#$#@
 @#$#@#$#@
 @#$#@#$#@
-<experiments>
-  <experiment name="HBES-selective-pressure" repetitions="32" runMetricsEveryStep="true">
-    <setup>setup</setup>
-    <go>go</go>
-    <timeLimit steps="16000"/>
-    <metric>count talker</metric>
-    <metric>count silent</metric>
-    <enumeratedValueSet variable="simulation-runtime">
-      <value value="20000"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="food-depletes?">
-      <value value="true"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="starting-proportion-altruists">
-      <value value="0"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="lifespan">
-      <value value="40"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="travel-mode">
-      <value value="&quot;smooth distribution&quot;"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="food-replacement-rate">
-      <value value="3.5"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="mutation?">
-      <value value="true"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="start-num-turtles">
-      <value value="750"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="freq-of-mutation">
-      <value value="3"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="ratio-of-special-foods">
-      <value value="-3"/>
-      <value value="-4"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="run-dist">
-      <value value="2"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="broadcast-radius">
-      <value value="1"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="num-food-strat">
-      <value value="8"/>
-    </enumeratedValueSet>
-  </experiment>
-  <experiment name="HBES-indi-nomut" repetitions="1" runMetricsEveryStep="true">
-    <setup>setup</setup>
-    <go>go</go>
-    <timeLimit steps="14000"/>
-    <metric>count talker</metric>
-    <metric>count silent</metric>
-    <metric>safe-mean [sum knowhow] of talker</metric>
-    <metric>safe-standard-deviation [sum knowhow] of talker</metric>
-    <metric>safe-mean [sum knowhow] of silent</metric>
-    <metric>safe-standard-deviation [sum knowhow] of silent</metric>
-    <metric>avg-silent-k 1</metric>
-    <metric>sd-silent-k 1</metric>
-    <metric>count-silent-k 1</metric>
-    <metric>avg-talker-k 1</metric>
-    <metric>sd-talker-k 1</metric>
-    <metric>count-talker-k 1</metric>
-    <metric>avg-silent-k 2</metric>
-    <metric>sd-silent-k 2</metric>
-    <metric>count-silent-k 2</metric>
-    <metric>avg-talker-k 2</metric>
-    <metric>sd-talker-k 2</metric>
-    <metric>count-talker-k 2</metric>
-    <metric>avg-silent-k 3</metric>
-    <metric>sd-silent-k 3</metric>
-    <metric>count-silent-k 3</metric>
-    <metric>avg-talker-k 3</metric>
-    <metric>sd-talker-k 3</metric>
-    <metric>count-talker-k 3</metric>
-    <metric>avg-silent-k 4</metric>
-    <metric>sd-silent-k 4</metric>
-    <metric>count-silent-k 4</metric>
-    <metric>avg-talker-k 4</metric>
-    <metric>sd-talker-k 4</metric>
-    <metric>count-talker-k 4</metric>
-    <metric>avg-silent-k 5</metric>
-    <metric>sd-silent-k 5</metric>
-    <metric>count-silent-k 5</metric>
-    <metric>avg-talker-k 5</metric>
-    <metric>sd-talker-k 5</metric>
-    <metric>count-talker-k 5</metric>
-    <metric>avg-silent-k 6</metric>
-    <metric>sd-silent-k 6</metric>
-    <metric>count-silent-k 6</metric>
-    <metric>avg-talker-k 6</metric>
-    <metric>sd-talker-k 6</metric>
-    <metric>count-talker-k 6</metric>
-    <metric>avg-silent-k 7</metric>
-    <metric>sd-silent-k 7</metric>
-    <metric>count-silent-k 7</metric>
-    <metric>avg-talker-k 7</metric>
-    <metric>sd-talker-k 7</metric>
-    <metric>count-talker-k 7</metric>
-    <metric>avg-silent-k 8</metric>
-    <metric>sd-silent-k 8</metric>
-    <metric>count-silent-k 8</metric>
-    <metric>avg-talker-k 8</metric>
-    <metric>sd-talker-k 8</metric>
-    <metric>count-talker-k 8</metric>
-    <enumeratedValueSet variable="alert-bias">
-      <value value="0.5"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="simulation-runtime">
-      <value value="20000"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="food-depletes?">
-      <value value="true"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="starting-proportion-altruists">
-      <value value="0.06"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="lifespan">
-      <value value="50"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="travel-mode">
-      <value value="&quot;smooth distribution&quot;"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="food-replacement-rate">
-      <value value="3.5"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="mutation?">
-      <value value="false"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="start-num-turtles">
-      <value value="750"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="freq-of-mutation">
-      <value value="3"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="ratio-of-special-foods">
-      <value value="-3"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="run-dist">
-      <value value="2"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="broadcast-radius">
-      <value value="1"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="num-food-strat">
-      <value value="8"/>
-    </enumeratedValueSet>
-  </experiment>
-  <experiment name="HBES-indi-mut40" repetitions="1" runMetricsEveryStep="true">
-    <setup>setup</setup>
-    <go>go</go>
-    <timeLimit steps="14000"/>
-    <metric>count talker</metric>
-    <metric>count silent</metric>
-    <metric>safe-mean [sum knowhow] of talker</metric>
-    <metric>safe-standard-deviation [sum knowhow] of talker</metric>
-    <metric>safe-mean [sum knowhow] of silent</metric>
-    <metric>safe-standard-deviation [sum knowhow] of silent</metric>
-    <metric>avg-silent-k 1</metric>
-    <metric>sd-silent-k 1</metric>
-    <metric>count-silent-k 1</metric>
-    <metric>avg-talker-k 1</metric>
-    <metric>sd-talker-k 1</metric>
-    <metric>count-talker-k 1</metric>
-    <metric>avg-silent-k 2</metric>
-    <metric>sd-silent-k 2</metric>
-    <metric>count-silent-k 2</metric>
-    <metric>avg-talker-k 2</metric>
-    <metric>sd-talker-k 2</metric>
-    <metric>count-talker-k 2</metric>
-    <metric>avg-silent-k 3</metric>
-    <metric>sd-silent-k 3</metric>
-    <metric>count-silent-k 3</metric>
-    <metric>avg-talker-k 3</metric>
-    <metric>sd-talker-k 3</metric>
-    <metric>count-talker-k 3</metric>
-    <metric>avg-silent-k 4</metric>
-    <metric>sd-silent-k 4</metric>
-    <metric>count-silent-k 4</metric>
-    <metric>avg-talker-k 4</metric>
-    <metric>sd-talker-k 4</metric>
-    <metric>count-talker-k 4</metric>
-    <metric>avg-silent-k 5</metric>
-    <metric>sd-silent-k 5</metric>
-    <metric>count-silent-k 5</metric>
-    <metric>avg-talker-k 5</metric>
-    <metric>sd-talker-k 5</metric>
-    <metric>count-talker-k 5</metric>
-    <metric>avg-silent-k 6</metric>
-    <metric>sd-silent-k 6</metric>
-    <metric>count-silent-k 6</metric>
-    <metric>avg-talker-k 6</metric>
-    <metric>sd-talker-k 6</metric>
-    <metric>count-talker-k 6</metric>
-    <metric>avg-silent-k 7</metric>
-    <metric>sd-silent-k 7</metric>
-    <metric>count-silent-k 7</metric>
-    <metric>avg-talker-k 7</metric>
-    <metric>sd-talker-k 7</metric>
-    <metric>count-talker-k 7</metric>
-    <metric>avg-silent-k 8</metric>
-    <metric>sd-silent-k 8</metric>
-    <metric>count-silent-k 8</metric>
-    <metric>avg-talker-k 8</metric>
-    <metric>sd-talker-k 8</metric>
-    <metric>count-talker-k 8</metric>
-    <enumeratedValueSet variable="simulation-runtime">
-      <value value="20000"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="food-depletes?">
-      <value value="true"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="starting-proportion-altruists">
-      <value value="0"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="lifespan">
-      <value value="40"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="travel-mode">
-      <value value="&quot;smooth distribution&quot;"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="food-replacement-rate">
-      <value value="3.5"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="mutation?">
-      <value value="true"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="start-num-turtles">
-      <value value="750"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="freq-of-mutation">
-      <value value="3"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="ratio-of-special-foods">
-      <value value="-3"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="run-dist">
-      <value value="2"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="broadcast-radius">
-      <value value="1"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="num-food-strat">
-      <value value="8"/>
-    </enumeratedValueSet>
-  </experiment>
-  <experiment name="HBES-indi-mut50" repetitions="1" runMetricsEveryStep="true">
-    <setup>setup</setup>
-    <go>go</go>
-    <timeLimit steps="14000"/>
-    <metric>count talker</metric>
-    <metric>count silent</metric>
-    <metric>safe-mean [sum knowhow] of talker</metric>
-    <metric>safe-standard-deviation [sum knowhow] of talker</metric>
-    <metric>safe-mean [sum knowhow] of silent</metric>
-    <metric>safe-standard-deviation [sum knowhow] of silent</metric>
-    <metric>avg-silent-k 1</metric>
-    <metric>sd-silent-k 1</metric>
-    <metric>count-silent-k 1</metric>
-    <metric>avg-talker-k 1</metric>
-    <metric>sd-talker-k 1</metric>
-    <metric>count-talker-k 1</metric>
-    <metric>avg-silent-k 2</metric>
-    <metric>sd-silent-k 2</metric>
-    <metric>count-silent-k 2</metric>
-    <metric>avg-talker-k 2</metric>
-    <metric>sd-talker-k 2</metric>
-    <metric>count-talker-k 2</metric>
-    <metric>avg-silent-k 3</metric>
-    <metric>sd-silent-k 3</metric>
-    <metric>count-silent-k 3</metric>
-    <metric>avg-talker-k 3</metric>
-    <metric>sd-talker-k 3</metric>
-    <metric>count-talker-k 3</metric>
-    <metric>avg-silent-k 4</metric>
-    <metric>sd-silent-k 4</metric>
-    <metric>count-silent-k 4</metric>
-    <metric>avg-talker-k 4</metric>
-    <metric>sd-talker-k 4</metric>
-    <metric>count-talker-k 4</metric>
-    <metric>avg-silent-k 5</metric>
-    <metric>sd-silent-k 5</metric>
-    <metric>count-silent-k 5</metric>
-    <metric>avg-talker-k 5</metric>
-    <metric>sd-talker-k 5</metric>
-    <metric>count-talker-k 5</metric>
-    <metric>avg-silent-k 6</metric>
-    <metric>sd-silent-k 6</metric>
-    <metric>count-silent-k 6</metric>
-    <metric>avg-talker-k 6</metric>
-    <metric>sd-talker-k 6</metric>
-    <metric>count-talker-k 6</metric>
-    <metric>avg-silent-k 7</metric>
-    <metric>sd-silent-k 7</metric>
-    <metric>count-silent-k 7</metric>
-    <metric>avg-talker-k 7</metric>
-    <metric>sd-talker-k 7</metric>
-    <metric>count-talker-k 7</metric>
-    <metric>avg-silent-k 8</metric>
-    <metric>sd-silent-k 8</metric>
-    <metric>count-silent-k 8</metric>
-    <metric>avg-talker-k 8</metric>
-    <metric>sd-talker-k 8</metric>
-    <metric>count-talker-k 8</metric>
-    <enumeratedValueSet variable="simulation-runtime">
-      <value value="20000"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="food-depletes?">
-      <value value="true"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="starting-proportion-altruists">
-      <value value="0"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="lifespan">
-      <value value="50"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="travel-mode">
-      <value value="&quot;smooth distribution&quot;"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="food-replacement-rate">
-      <value value="3.5"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="mutation?">
-      <value value="true"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="start-num-turtles">
-      <value value="750"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="freq-of-mutation">
-      <value value="3"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="ratio-of-special-foods">
-      <value value="-3"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="run-dist">
-      <value value="2"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="broadcast-radius">
-      <value value="1"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="num-food-strat">
-      <value value="8"/>
-    </enumeratedValueSet>
-  </experiment>
-  <experiment name="ACS-broadcast-vs-run" repetitions="3" runMetricsEveryStep="true">
-    <setup>setup</setup>
-    <go>go</go>
-    <timeLimit steps="12000"/>
-    <metric>count talker</metric>
-    <metric>count silent</metric>
-    <enumeratedValueSet variable="start-num-turtles">
-      <value value="750"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="freq-of-mutation">
-      <value value="3"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="mutation?">
-      <value value="true"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="run-dist">
-      <value value="1"/>
-      <value value="2"/>
-      <value value="4"/>
-      <value value="8"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="ratio-of-special-foods">
-      <value value="-2"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="num-food-strat">
-      <value value="8"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="food-depletes?">
-      <value value="true"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="lifespan">
-      <value value="50"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="food-replacement-rate">
-      <value value="3.5"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="travel-mode">
-      <value value="&quot;levi flight&quot;"/>
-      <value value="&quot;smooth distribution&quot;"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="simulation-runtime">
-      <value value="17000"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="broadcast-radius">
-      <value value="1"/>
-      <value value="2"/>
-      <value value="4"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="starting-proportion-altruists">
-      <value value="0"/>
-    </enumeratedValueSet>
-  </experiment>
-  <experiment name="HBES-indi-test" repetitions="1" runMetricsEveryStep="true">
-    <setup>setup</setup>
-    <go>go</go>
-    <timeLimit steps="1400"/>
-    <metric>count talker</metric>
-    <metric>count silent</metric>
-    <metric>safe-mean [sum knowhow] of talker</metric>
-    <metric>safe-standard-deviation [sum knowhow] of talker</metric>
-    <metric>safe-mean [sum knowhow] of silent</metric>
-    <metric>safe-standard-deviation [sum knowhow] of silent</metric>
-    <metric>avg-silent-k 1</metric>
-    <metric>sd-silent-k 1</metric>
-    <metric>count-silent-k 1</metric>
-    <metric>avg-talker-k 1</metric>
-    <metric>sd-talker-k 1</metric>
-    <metric>count-talker-k 1</metric>
-    <metric>avg-silent-k 2</metric>
-    <metric>sd-silent-k 2</metric>
-    <metric>count-silent-k 2</metric>
-    <metric>avg-talker-k 2</metric>
-    <metric>sd-talker-k 2</metric>
-    <metric>count-talker-k 2</metric>
-    <metric>avg-silent-k 3</metric>
-    <metric>sd-silent-k 3</metric>
-    <metric>count-silent-k 3</metric>
-    <metric>avg-talker-k 3</metric>
-    <metric>sd-talker-k 3</metric>
-    <metric>count-talker-k 3</metric>
-    <metric>avg-silent-k 4</metric>
-    <metric>sd-silent-k 4</metric>
-    <metric>count-silent-k 4</metric>
-    <metric>avg-talker-k 4</metric>
-    <metric>sd-talker-k 4</metric>
-    <metric>count-talker-k 4</metric>
-    <metric>avg-silent-k 5</metric>
-    <metric>sd-silent-k 5</metric>
-    <metric>count-silent-k 5</metric>
-    <metric>avg-talker-k 5</metric>
-    <metric>sd-talker-k 5</metric>
-    <metric>count-talker-k 5</metric>
-    <metric>avg-silent-k 6</metric>
-    <metric>sd-silent-k 6</metric>
-    <metric>count-silent-k 6</metric>
-    <metric>avg-talker-k 6</metric>
-    <metric>sd-talker-k 6</metric>
-    <metric>count-talker-k 6</metric>
-    <metric>avg-silent-k 7</metric>
-    <metric>sd-silent-k 7</metric>
-    <metric>count-silent-k 7</metric>
-    <metric>avg-talker-k 7</metric>
-    <metric>sd-talker-k 7</metric>
-    <metric>count-talker-k 7</metric>
-    <metric>avg-silent-k 8</metric>
-    <metric>sd-silent-k 8</metric>
-    <metric>count-silent-k 8</metric>
-    <metric>avg-talker-k 8</metric>
-    <metric>sd-talker-k 8</metric>
-    <metric>count-talker-k 8</metric>
-    <enumeratedValueSet variable="simulation-runtime">
-      <value value="20000"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="food-depletes?">
-      <value value="true"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="starting-proportion-altruists">
-      <value value="0"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="lifespan">
-      <value value="60"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="travel-mode">
-      <value value="&quot;smooth distribution&quot;"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="food-replacement-rate">
-      <value value="3.5"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="mutation?">
-      <value value="true"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="start-num-turtles">
-      <value value="750"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="freq-of-mutation">
-      <value value="2"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="ratio-of-special-foods">
-      <value value="-3"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="run-dist">
-      <value value="2"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="broadcast-radius">
-      <value value="1"/>
-    </enumeratedValueSet>
-    <enumeratedValueSet variable="num-food-strat">
-      <value value="8"/>
-    </enumeratedValueSet>
-  </experiment>
-</experiments>
 @#$#@#$#@
 @#$#@#$#@
 default
@@ -1957,7 +795,6 @@ true
 0
 Line -7500403 true 150 150 90 180
 Line -7500403 true 150 150 210 180
-
 @#$#@#$#@
 0
 @#$#@#$#@
