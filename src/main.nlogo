@@ -1,8 +1,7 @@
 ;;try to copy a simple spatial PD game with mobile agents
 
 
-;kill yourself to make 2 copies
-;manage proportion of suicidal entities (for greater good)
+
 
 
 ;;turtle variables
@@ -23,37 +22,6 @@ globals[
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; RUN SIMULATIONS
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-
-;to run-simulation-to-file
-;  ; Run the simulation 50 times up to 1300 ticks recording knowledge density to a csv file over every run every 100 ticks
-;  let filename (word "simulation-results-" cost-of-living ".csv")
-;  IF FILE-EXISTS? filename [
-;    FILE-DELETE filename
-;  ]
-;  let number-of-ticks-main (n-values 50 [(n-values 13 [0.1])])
-;  let cnt-outer 0
-;  repeat 50 [
-;    setup
-;    let number-of-ticks (n-values 14 [0.1])
-;    let cnt-inner 1
-;    ;; go to 500 ticks
-;    repeat 5 [
-;      repeat 100 [
-;        go
-;      ]
-;      set number-of-ticks (replace-item cnt-inner number-of-ticks rep-tick-maximum)
-;      set cnt-inner (cnt-inner + 1)
-;    ]
-;    set number-of-ticks-main (replace-item cnt-outer number-of-ticks-main number-of-ticks)
-;    set cnt-outer (cnt-outer + 1)
-;  ]
-;  csv:to-file filename number-of-ticks-main
-;end
-
-
-;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; SETUP PROCEDURES
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -69,19 +37,19 @@ to initialize-variables
   ;;initialize all variables
   set reproduce-threshold 100
   set reproduce-cost 50
-  set payoff-CC 2
-  set payoff-CD 2
-  set payoff-DC 2
-  set payoff-DD 2
+  set payoff-CC 2 ;used to be 3, CHANGED to 2
+  set payoff-CD 2 ;used to be -1, CHANGED to 2
+  set payoff-DC 2 ;used to be 5, CHANGED to 2
+  set payoff-DD 2 ;used to be 0, CHANGED to 2
   set max-energy 150
 end
 
 to create-agents [n coop-freq]
   create-turtles n[
     ifelse random-float 1 < coop-freq
-    [set color green]
+    [set color green] ;used to be "blue", CHANGED to "green"
     [set color red]
-    set shape "square"
+    set shape "square" ;used to be "circle", CHANGED to "square"
     set size 1
     move-to one-of patches with [not any? other turtles-here]
     set energy (random 50 + 1)
@@ -94,7 +62,7 @@ end
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 to go
   if not any? turtles [ stop ] ;stop the simulation if everyone is dead
-  let ngreen (count turtles with [color = green])
+  let ngreen (count turtles with [color = green]) ; THIS LINE HAS BEEN ADDED, gets the count of cooperators for the graph
   ask turtles [set played? false]
   ask turtles[
     if energy <= 0 [die] ;;die if not enough energy
@@ -106,7 +74,19 @@ to go
     if (energy >= reproduce-threshold and (count turtles < carrying-capacity))
       [reproduce]
 
-    ;;kill yourself
+
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+    ;; ADDED BLOCK
+    ;;
+    ;; The below code block decides, for each tick, for each cooperator
+    ;; if it is going to suicide or not (the frequency of this happening
+    ;; is defined in the interface by the varibale "suicide-rate"). When
+    ;; a suicide occurs, all the other green cooperators are summoned
+    ;; and the energy of the fallen cooperator is spread among them.
+    ;;
+    ;;
+    ;;
+    ;;
     ifelse color = green ;if I'm a cooperator
     [
       ifelse random-float 1 < suicide-rate
@@ -117,26 +97,22 @@ to go
         [
           ifelse random-float 1 < 1
           [
-            set energy (energy + (currenergy / ngreen))
+            set energy (energy + (currenergy / ngreen)) ;distribute energy
           ]
           [
           ]
         ]
         set energy 0
-
-        ;let partner (one-of ((turtles-on neighbors) with [color = green]))
-        ;;the rest only runs if a partner is found
-        ;if partner != nobody
-        ;[
-         ; ask partner [set energy (energy + 1000)]
-         ; set energy 0
-        ;]
       ]
       [
       ]
     ]
     [
     ]
+    ;;
+    ;; ADDED BLOCK
+    ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
     ;;energy loss
     set energy (energy - cost-of-living)
     if energy > max-energy [ set energy max-energy ]
@@ -144,20 +120,9 @@ to go
     ;;movement
     if (not played?) [ move2 ];;if didn't find coplayer, move
   ]
-  ;test
   tick
 end
 
-to test
-  let index 0  ; list index starts at 0 in NL
-  create-turtles 4
-
-  ; after all 3 are created, each one runs the following code
-  [ let loc item index [ [0 0] [0 1] [1 0] [1 1]]  ; get the next loc from the list
-    setxy (item 0 loc) (item 1 loc)  ; loc itself is a list, first item x, second item y
-    set index index + 1  ; increment the index
-  ]
-end
 
 ;;Find an interaction partner and play PD game with them
 to interact
@@ -167,9 +132,9 @@ to interact
     set played? true
     ask partner [set played? true]
 
-    ifelse color = green ;if I'm a cooperator
+    ifelse color = green ;if I'm a cooperator  ;used to be "blue", CHANGED to "green"
     [
-      ifelse ([color] of partner) = green
+      ifelse ([color] of partner) = green  ;used to be "blue", CHANGED to "green"
       [
         set energy (energy + payoff-CC)
         ask partner [set energy (energy + payoff-CC)]
@@ -180,7 +145,7 @@ to interact
       ]
     ]
     [ ;if I'm a defector
-      ifelse ([color] of partner) = green
+      ifelse ([color] of partner) = green  ;used to be "blue", CHANGED to "green"
       [
         set energy (energy + payoff-DC)
         ask partner [set energy (energy + payoff-CD)]
@@ -245,7 +210,7 @@ end
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
 to-report rep-coop-freq
-  let Nc (count turtles with [ color = green ])
+  let Nc (count turtles with [ color = green ])  ;used to be "blue", CHANGED to "green"
   let N (count turtles)
   report Nc / N
 end
@@ -393,7 +358,7 @@ cost-of-living
 cost-of-living
 0
 2
-1.0
+0.5
 .50
 1
 NIL
@@ -518,12 +483,25 @@ CHOOSER
 suicide-rate
 suicide-rate
 1.0E-4 0.001 0.01 0.1 0.9
-3
+2
 
 @#$#@#$#@
+## EDITS TO THIS DOCUMENT
+
+This NetLogo file is the result of modification of the original NetLogo instatiation created by Paul Smaldino in 2017. The sole purpose of this NetLogo file is to serve
+as a simulation environment for a tested hypothesis. Changes have been made by
+Adam Jaamour and Andrea Lissak in 2019.
+
 ## WHAT IS IT?
 
-This is a spatial Prisoner's Dilemma (PD) game model, in which agents play games with neighbors for energy payoffs, which they use to reproduce locally. Being alive costs energy, and so agents must receive cooperation to stay alive. This is a replication of the model presented in Smaldino, Schank, & McElreath (2013) and Smaldino (2013). 
+The below code block decides, for each tick, for each cooperator
+if it is going to suicide or not (the frequency of this happening
+is defined in the interface by the varibale "suicide-rate"). When
+a suicide occurs, all the other green cooperators are summoned
+and the energy of the fallen cooperator is spread among them.
+
+This is a game model in which agents gain energy by being close to any other agent. Energy is used to reproduce locally. Being alive costs energy depending on the cost of living slider in the interface, and so agents must generate energy stay alive in harsh environments. 
+This is a replication of the model presented in Smaldino, Schank, & McElreath (2013) and Smaldino (2013).
 See below for paper details. 
 
 ## HOW IT WORKS
