@@ -16,7 +16,6 @@ The current project shows how altruistic behaviours, like the one described by W
 
 While Smaldino et al. (2013) demonstrate that, for certain conditions, cooperative behaviour is worse in harsh environments and better in safe ones, the opposite is argued in this report. As stated by Caˇˇce and Bryson (2007, p. 312), simulations are strictly theoretical and can in no case simulate any kind of realistic real-world situation. Therefore, changing a single heuristic can flip the simulation outcomes, which is what was done in this report.
 
-
 A rational rule-base was constructed with respect to simulation of real-world behaviour. An additional rule introduced to Smaldino et al.’s simulation will be referred to as “altruistic suicide”. This suicidal heuristic is inspired by Wilkinson (1984) and the Vampire Bat’s altruistic behaviour. It is intended to be a simplification of altruistic behaviours observed in nature. The assumption behind it is that any altruistic act, clarified by Smaldino et al. (2013, p. 451), has the risk of bringing the entity committing the act closer to its death. This altruistic suicide strategy requires part of the population to die and share its resources (its corpse) with the remaining entities in the form of energy.
 
 Additional changes made to Smaldino et al. (2013)’s original simulation rules include the removal of the prisoner’s dilemma paradigm. The new rules make it so that any interaction between agents generate +2 energy units for each communication. The other modification to the code is a pre-defined probability of triggering an altruistic suicide at each tick.
@@ -31,6 +30,9 @@ The simulation is conducted in NetLogo 6.0. using a modified version of Smaldino
 ## 3 Results
 
 The results of the nine simulation runs are plotted in a 3D histogram (see Figure 1), where the height of the bars is the number of ticks needed to reach a population ofN= 4900.
+
+<img src="https://github.com/Adamouization/ICCS-2/blob/master/report/figures/3d_histogram.png" alt="results histogram" width="40%"/>
+
 
 The 3D histogram clearly demonstrates that the higher the suicide rate, the quicker the population reaches the maximum threshold, meaning a population that cooperates evolves more quickly than a selfish one. Similarly, the lower the cost of living, the quicker the population evolves, meaning harsh environment conditions hinder a population’s growth. The results of the experiment show that altruism (higher suicide rate) helps countering the environment’s harsh conditions, allowing the population to grow more quickly. The histogram also betrays a second correlation between the changes in cost of living for lower ranges (from 0 to 0.5), showing a boosting effect for population growth caused by higher suicide rates.
 
